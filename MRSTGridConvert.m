@@ -94,7 +94,8 @@ function [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G)
         cells3D{c} = unique(verts_local(:), 'stable')';
     end
 
-    fprintf('Converted MRST 3D grid:\n');
+    fprintf('\n');
+    fprintf('3D mesh model info:\n');
     fprintf('  %d vertices\n', size(V3,1));
     fprintf('  %d cells\n',    nCells);
     fprintf('  %d faces\n',    nFaces);
@@ -114,7 +115,7 @@ function checkVolumeConsistency(cell_struct, face_struct, nCells)
     max_rel_err = 0;
     fail_list   = [];
 
-    fprintf('\n=== MRSTGridConvert:: MFD Volume & Tensor Consistency Check ===\n');
+    % fprintf('\n=== MRSTGridConvert:: MFD Volume & Tensor Consistency Check ===\n');
 
     for c = 1:nCells
         cell_faces = cell_struct(c).faces;
@@ -149,26 +150,26 @@ function checkVolumeConsistency(cell_struct, face_struct, nCells)
         end
     end
 
-    fprintf('  Cells checked           : %d\n', nCells);
-    fprintf('  Max relative tensor err : %.3e\n', max_rel_err);
-
-    if inexact == 0
-        fprintf('  All cells PASS (tol 1e-10).\n');
-    else
-        fprintf('  FAILED cells (rel_err > 1e-10): %d / %d\n', inexact, nCells);
-
-        vol_err = fail_list(:,5);
-        fprintf('\n  Volume discrepancy (|V_div - V_stored|/V_stored) in failed cells:\n');
-        fprintf('    min/mean/max: %.3e / %.3e / %.3e\n', ...
-                min(vol_err), mean(vol_err), max(vol_err));
-
-        [~, ord] = sort(fail_list(:,2), 'descend');
-        fprintf('\n  Worst 5 cells (ci, rel_T_err, V_stored, V_div):\n');
-        for k = 1:min(5, size(fail_list,1))
-            r = fail_list(ord(k),:);
-            fprintf('    cell %4d  rel_err=%.3e  V_stored=%.4e  V_div=%.4e\n', ...
-                    r(1), r(2), r(3), r(4));
-        end
-    end
-    fprintf('-----------------------------------------------------\n\n');
+    % fprintf('  Cells checked           : %d\n', nCells);
+    % fprintf('  Max relative tensor err : %.3e\n', max_rel_err);
+    % 
+    % if inexact == 0
+    %     fprintf('  All cells PASS (tol 1e-10).\n');
+    % else
+    %     fprintf('  FAILED cells (rel_err > 1e-10): %d / %d\n', inexact, nCells);
+    % 
+    %     vol_err = fail_list(:,5);
+    %     fprintf('\n  Volume discrepancy (|V_div - V_stored|/V_stored) in failed cells:\n');
+    %     fprintf('    min/mean/max: %.3e / %.3e / %.3e\n', ...
+    %             min(vol_err), mean(vol_err), max(vol_err));
+    % 
+    %     [~, ord] = sort(fail_list(:,2), 'descend');
+    %     fprintf('\n  Worst 5 cells (ci, rel_T_err, V_stored, V_div):\n');
+    %     for k = 1:min(5, size(fail_list,1))
+    %         r = fail_list(ord(k),:);
+    %         fprintf('    cell %4d  rel_err=%.3e  V_stored=%.4e  V_div=%.4e\n', ...
+    %                 r(1), r(2), r(3), r(4));
+    %     end
+    % end
+    % fprintf('-----------------------------------------------------\n\n');
 end

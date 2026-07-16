@@ -1,20 +1,12 @@
 close all; clear clc;
 
+addpath('tests');
 setupMRSTAuto();
 G = createTwoFault();
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
 B_local = computeBE(cell_struct, face_struct, V3);
 
-e = 1;
-
-B_E = B_local{e};
-
-fprintf('Element %d\n', e);
-fprintf('Number of faces: %d\n', ...
-    numel(cell_struct(e).faces));
-
-fprintf('Size of B_E: %d x %d\n', ...
-    size(B_E,1), size(B_E,2));
-
-disp(B_E);
+% patch/unit test for B_E
+test_BE_patch(B_local, cell_struct, face_struct);
+test_BE_unitcube();
