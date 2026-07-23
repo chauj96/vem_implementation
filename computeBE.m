@@ -39,9 +39,15 @@ function B_local = computeBE(cell_struct, face_struct, V3)
             b2 = cross(df, t2);
             b3 = cross(df, n);
     
-            b4 = ((m20 + m02) / Af^3) * n;
-            b5 = (m11*t1 - m20*t2) / Af^3;
-            b6 = (m02*t1 - m11*t2) / Af^3;
+            % b_j vectors before rescaling the face traction basis
+            % b4 = ((m20 + m02) / Af^3) * n;
+            % b5 = (m11*t1 - m20*t2) / Af^3;
+            % b6 = (m02*t1 - m11*t2) / Af^3;
+
+            % b_j vectors after rescaling the face traction basis
+            b4 = (sqrt(m20 + m02) / Af) * n;
+            b5 = (1 / (Af * sqrt(m20))) * (m11 * t1 - m20 * t2);
+            b6 = (1 / (Af * sqrt(m02))) * (m02 * t1 - m11 * t2);
     
             Bomega_f = [b1, b2, b3, b4, b5, b6];
     
