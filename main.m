@@ -1,9 +1,10 @@
-close all; clear clc;
+% close all; clear clc;
 
 addpath('tests');
 setupMRSTAuto();
 G = createTwoFault();
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 
 B_local = computeBE(cell_struct, face_struct, V3);
 
