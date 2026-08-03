@@ -1,11 +1,12 @@
 function B_local = computeBE(cell_struct, face_struct, V3)
 
-    % construct the local divergence bilinear matrix B_E for every cell
+% construct the local divergence bilinear matrix B_E for every cell
     
     nCells = length(cell_struct);
     B_local = cell(nCells, 1);
     
     for e = 1:nCells
+        Bgeom = struct([]);
         xE = cell_struct(e).center(:); % barycenter of cell E
         
         elementFaces = cell_struct(e).faces;
@@ -56,8 +57,19 @@ function B_local = computeBE(cell_struct, face_struct, V3)
     
             cols = 6 * (lf - 1) + (1:6);
             B_E(:, cols) = Bface;
+
+            % save geometry actually used in this cell
+            Bgeom(lf).face = f;
+            Bgeom(lf).t1 = t1;
+            Bgeom(lf).t2 = t2;
+            Bgeom(lf).n = n;
+            Bgeom(lf).Qf = Qf;
+            Bgeom(lf).m20 = m20;
+            Bgeom(lf).m02 = m02;
+            Bgeom(lf).m11 = m11;
         end
     
-        B_local{e} = B_E;
+        B_local{e}.matrix = B_E;
+        B_local{e}.geom = Bgeom;
     end
 end

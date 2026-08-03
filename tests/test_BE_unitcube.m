@@ -19,7 +19,7 @@ function test_BE_unitcube()
 
     B_exact = analytical_BE_unitcube();
 
-    B = B_local{1};
+    B = B_local{1}.matrix;
 
     tol = 1e-12;
     maxErr = 0;

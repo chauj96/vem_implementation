@@ -36,7 +36,7 @@ function cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3)
             for k = 1:nVerts
     
                 kp1 = mod(k, nVerts) + 1;
-                vi   = V3(verts(k), :)';
+                vi = V3(verts(k), :)';
                 vip1 = V3(verts(kp1), :)';
     
                 % tetrahedron vertices
@@ -66,7 +66,5 @@ function cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3)
         cell_struct(c).quad_weights = quad_weights;
         cell_struct(c).nQuad = size(quad_points, 2);
         cell_struct(c).nTet = cell_struct(c).nQuad / 4;
-    
     end
-
 end
