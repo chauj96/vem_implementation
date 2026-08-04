@@ -1,0 +1,18 @@
+function matrices = projToMatrices(P_local)
+%UNTITLED Summary of this function goes here
+%   Detailed explanation goes here
+
+numBasisFunctions = size(P_local,2);
+matrices = cell(numBasisFunctions,1);
+
+for j = 1:numBasisFunctions
+  matrices{j} = ...
+    [P_local(1,j),P_local(6,j),P_local(5,j);
+    P_local(6,j),P_local(2,j),P_local(4,j);
+    P_local(5,j),P_local(4,j),P_local(3,j)];
+end
+
+
+
+
+end
