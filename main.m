@@ -19,8 +19,12 @@ elseif meshOption == 2
 end
 
 %% SET UP GEOMETRY
+% Lamé parameters (currently assuming homogeneous isotropic elasticity)
+lambda = 1;
+mu = 1;
+
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
-cell_struct = computeCellDiameter(cell_struct, V3, cells3D);
+cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu);
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
@@ -55,4 +59,4 @@ K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 % 
 % % unit test for projection matrix P_E
 % test_projection_constant(cell_struct, face_struct, P_local, B_local);
-test_stabilization_constant(cell_struct, face_struct, B_local, K_stab);
+% test_stabilization_constant(cell_struct, face_struct, B_local, K_stab);
