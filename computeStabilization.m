@@ -2,6 +2,7 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
 % construct the local stabilization matrix K_E^{stab}
 % k_E : 1/(2 mu) or infinity norm of C^{-1}
 % h_E : diameter of cell E
+% scaling factor (stabilization): k_E * h_E
 
     nCells = numel(cell_struct);
     K_stab = cell(nCells, 1);
@@ -15,6 +16,8 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
         K_E = zeros(nDofs, nDofs);
         
         kE = 1 / (2*mu);
+        % Cinv = cell_struct(e).Cinv;
+        % kE = norm(Cinv, inf);
         hE = cell_struct(e).diameter;
 
         % projected polynomial stresses
