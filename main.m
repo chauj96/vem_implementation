@@ -10,11 +10,22 @@ if meshOption == 1
     % unit cube
     G = cartGrid([3 3 3],[1 1 1]);
     G = computeGeometry(G);
+    [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
 elseif meshOption == 2
-
     % two-fault model
-    G = createTwoFault();
+
+    % create through MRST (takes long)
+    % G = createTwoFault();
+    % [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+
+    % load preprocessed mesh geometry
+    load('meshes/fault_mesh.mat');    
+    fprintf('\nMesh loaded: two-fault model\n');
+
+    % read .vtu file
+    % filename = 'meshes/fault_mesh.vtu';
+    % readVTU(filename);
 
 end
 
@@ -23,7 +34,7 @@ end
 lambda = 1;
 mu = 1;
 
-[cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+% [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu);
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
@@ -46,30 +57,14 @@ P_local = computeProjectionMatrix(cell_struct, Bproj);
 K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-
-% checking... scaling ratio
-ratio = zeros(numel(cell_struct),1);
-nCells = numel(cell_struct);
-for e = 1:nCells
-    ratio(e) = norm(K_stab{e},'fro') / norm(K_cons{e}, 'fro');
+%% MESH VISUALIZATION
+if ~exist('output', 'dir')
+    mkdir('output');
 end
 
-fprintf('min = %.3e\n', min(ratio));
-fprintf('median = %.3e\n', median(ratio));
-fprintf('max = %.3e\n', max(ratio));
+writeMeshVTU('output/twoFault_mesh.vtu', V3, cell_struct, face_struct);
 
-figure;
-histogram(log10(ratio),100);
-
-xlabel('log_{10}(||K_{stab}||_F / ||K_{cons}||_F)');
-ylabel('Number of cells');
-title('Distribution of stabilization-to-consistency ratio');
-grid on;
-
-
-
-
-%% TESTING
+%% INTERNAL TESTS
 % % patch/unit test for B_E
 % test_BE_patch(cell_struct, face_struct, B_local);
 % test_BE_unitcube();
