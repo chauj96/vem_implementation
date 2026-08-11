@@ -2,7 +2,7 @@ function writeMeshVTU(filename, V3, cell_struct, face_struct)
 % Write a 3D polyhedral mesh to a VTU file for visualization in ParaView.
 
     nCells = numel(cell_struct);
-    nPts   = size(V3,1);
+    nPts = size(V3,1);
 
     VTK_POLYHEDRON = 42;
 
