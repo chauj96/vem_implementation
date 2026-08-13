@@ -8,7 +8,7 @@ meshOption = 1;
 if meshOption == 1
 
     % unit cube
-    G = cartGrid([3 3 3],[1 1 1]);
+    G = cartGrid([10 10 10],[1 1 1]);
     G = computeGeometry(G);
     [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
@@ -59,7 +59,7 @@ P_local = computeProjectionMatrix(cell_struct, Bproj);
 K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-%% ASSEMBLE GLOBAL SYSTEM
+%% ASSEMBLE GLOBAL SYSTEM (need to do documentation and clean up)
 [K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
 
 K_global = K_cons_global + K_stab_global;
@@ -83,6 +83,9 @@ nStressDofs = 6*numel(face_struct);
 
 sigma_h = sol(1:nStressDofs);
 u_h = sol(nStressDofs+1:end);
+
+% compute error (sanity check)
+errors = computeSolutionError(cell_struct, face_struct, sigma_h, u_h, face_global_geom, lambda, mu);
 
 
 %% MESH VISUALIZATION
