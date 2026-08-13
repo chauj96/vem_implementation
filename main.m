@@ -66,7 +66,23 @@ K_global = K_cons_global + K_stab_global;
 A_global = [K_global, B_global';
             B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
 
-rhs_D = assembleDirichletRHS(face_struct, face_global_geom);
+rhs_D = -assembleDirichletRHS(face_struct, face_global_geom);
+
+nDispDofs = 6*numel(cell_struct);
+
+% f = 0
+rhs = [rhs_D;
+       zeros(nDispDofs,1)];
+
+[A_global, rhs, neuDofs, neuVals] = assembleNeumann(face_struct, A_global, rhs, face_global_geom, lambda, mu);
+
+% solve the linear system (direct solver....for now)
+sol = A_global \ rhs;
+
+nStressDofs = 6*numel(face_struct);
+
+sigma_h = sol(1:nStressDofs);
+u_h = sol(nStressDofs+1:end);
 
 
 %% MESH VISUALIZATION

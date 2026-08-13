@@ -1,5 +1,5 @@
 function face_global_geom = computeGlobalFaceGeometry(face_struct, V3)
-% construct global/reference geometry for each face
+% construct a unique global/reference geometric convention for each face.
 
     nFaces = numel(face_struct);
     face_global_geom = struct([]);
