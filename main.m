@@ -3,7 +3,7 @@ addpath('tests');
 % setupMRSTAuto();  % for MRST automatic setup
 
 %% LOAD MESH
-meshOption = 2;
+meshOption = 1;
 
 if meshOption == 1
 
@@ -34,8 +34,9 @@ end
 lambda = 1;
 mu = 1;
 
-% [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu);
+face_struct = assignFaceProperties(face_struct); 
+
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
@@ -48,6 +49,7 @@ A_local = computeAE_Tonon(cell_struct, face_struct, V3);
 % DIVERGENCE MATRIX (quadrature approach, closed form approach from notes)
 % B_local = computeBEQuadrature(cell_struct, face_struct, V3);
 B_local = computeBE(cell_struct, face_struct, V3);
+face_global_geom = computeGlobalFaceGeometry(face_struct, V3);
 
 % PROJECTION MATRIX
 D_local = computeDE(cell_struct, A_local, B_local);
@@ -57,12 +59,22 @@ P_local = computeProjectionMatrix(cell_struct, Bproj);
 K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-%% MESH VISUALIZATION
-if ~exist('output', 'dir')
-    mkdir('output');
-end
+%% ASSEMBLE GLOBAL SYSTEM
+[K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
 
-writeMeshVTU('output/twoFault_mesh.vtu', V3, cell_struct, face_struct);
+K_global = K_cons_global + K_stab_global;
+A_global = [K_global, B_global';
+            B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
+
+rhs_D = assembleDirichletRHS(face_struct, face_global_geom);
+
+
+%% MESH VISUALIZATION
+% if ~exist('output', 'dir')
+%     mkdir('output');
+% end
+% 
+% writeMeshVTU('output/twoFault_mesh.vtu', V3, cell_struct, face_struct);
 
 %% INTERNAL TESTS
 % % patch/unit test for B_E
