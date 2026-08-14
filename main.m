@@ -1,31 +1,42 @@
 % clear; clc; close all
 addpath('tests');
+addpath(genpath('FACTORIZE'))
 % setupMRSTAuto();  % for MRST automatic setup
 
-%% LOAD MESH
+%% LOAD MESH AND CHOOSE SOLVER TYPE (direct or iterative)
 meshOption = 1;
+solverOption = 'iterative'; 
 
 if meshOption == 1
 
     % unit cube
+    fprintf('\n[# MESH LOADED: unit cube model]\n');
     G = cartGrid([10 10 10],[1 1 1]);
     G = computeGeometry(G);
     [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
 elseif meshOption == 2
-    % two-fault model
+    % two-fault model (we need to use iterative solver!!)
 
-    % create through MRST (takes long)
+    fprintf('\n[# MESH LOADED: two-fault model]\n');
+
+    % way 1: create through MRST (takes long)
     % G = createTwoFault();
     % [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
-    % load preprocessed mesh geometry
-    load('meshes/fault_mesh.mat');    
-    fprintf('\nMesh loaded: two-fault model\n');
+    % way 2: load preprocessed mesh geometry
+    load('meshes/fault_mesh.mat'); 
 
-    % read .vtu file
+    % way 3: read .vtu file
     % filename = 'meshes/fault_mesh.vtu';
-    % readVTU(filename);
+    % [cell_struct, face_struct, V3, cells3D] = readVTU(filename);
+
+    nCells = numel(cell_struct);
+    nFaces = numel(face_struct);
+    fprintf('3D mesh model info:\n');
+    fprintf('  %d vertices\n',size(V3,1));
+    fprintf('  %d cells\n',nCells);
+    fprintf('  %d faces\n',nFaces);
 
 end
 
@@ -40,14 +51,16 @@ face_struct = assignFaceProperties(face_struct);
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
+nStressDofs = 6*numel(face_struct);
+nDispDofs = 6*numel(cell_struct);
+
 %% COMPUTE VEM MATRICES (LOCAL LEVEL)
+fprintf('\n[# COMPUTE LOCAL OPERATORS]\n');
 
 % INERTIA MATRIX (quadrature approach, Tonon approach)
-% A_local = computeAEQuadrature(cell_struct);
 A_local = computeAE_Tonon(cell_struct, face_struct, V3);
 
 % DIVERGENCE MATRIX (quadrature approach, closed form approach from notes)
-% B_local = computeBEQuadrature(cell_struct, face_struct, V3);
 B_local = computeBE(cell_struct, face_struct, V3);
 face_global_geom = computeGlobalFaceGeometry(face_struct, V3);
 
@@ -60,40 +73,49 @@ K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
 %% ASSEMBLE GLOBAL SYSTEM (need to do documentation and clean up)
+fprintf('\n[# ASSEMBLE GLOBAL SYSTEM]\n');
+
 [K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
 
 K_global = K_cons_global + K_stab_global;
 A_global = [K_global, B_global';
             B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
 
-rhs_D = -assembleDirichletRHS(face_struct, face_global_geom);
+rhs_D = assembleDirichletRHS(cell_struct, face_struct, face_global_geom);
 
-nDispDofs = 6*numel(cell_struct);
-
-% f = 0
+% f = 0 (just for now)
 rhs = [rhs_D;
        zeros(nDispDofs,1)];
 
-[A_global, rhs, neuDofs, neuVals] = assembleNeumann(face_struct, A_global, rhs, face_global_geom, lambda, mu);
+[A_global, rhs, ~, ~] = assembleNeumann(face_struct, A_global, rhs, face_global_geom, lambda, mu);
 
-% solve the linear system (direct solver....for now)
-sol = A_global \ rhs;
+%% SOLVE GLOBAL SYSTEM
+fprintf('\n[# SOLVE THE LINEAR SYSTEM: %d x %d]\n', size(A_global,1), size(A_global,2));
 
-nStressDofs = 6*numel(face_struct);
+switch solverOption
 
-sigma_h = sol(1:nStressDofs);
-u_h = sol(nStressDofs+1:end);
+    case 'direct'
+        sol = A_global \ rhs;
+        sigma_h = sol(1:nStressDofs);
+        u_h = sol(nStressDofs+1:end);
 
-% compute error (sanity check)
+    case 'iterative'
+        [sigma_h, u_h] = iterative_solver(A_global, rhs, cell_struct, face_struct);
+
+    otherwise
+        error('Unknown solver option: %s', solverOption);
+
+end
+
 errors = computeSolutionError(cell_struct, face_struct, sigma_h, u_h, face_global_geom, lambda, mu);
 
 
 %% MESH VISUALIZATION
-% if ~exist('output', 'dir')
-%     mkdir('output');
-% end
-% 
-% writeMeshVTU('output/twoFault_mesh.vtu', V3, cell_struct, face_struct);
+if ~exist('output', 'dir')
+    mkdir('output');
+end
+
+writeMeshVTU('output/mesh.vtu', V3, cell_struct, face_struct);
 
 %% INTERNAL TESTS
 % % patch/unit test for B_E

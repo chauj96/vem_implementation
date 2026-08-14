@@ -125,6 +125,6 @@ function writeMeshVTU(filename, V3, cell_struct, face_struct)
 
     fclose(fid);
 
-    fprintf('Mesh written to %s\n', filename);
+    fprintf('\n# Mesh written to %s\n', filename);
 
 end

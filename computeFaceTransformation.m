@@ -5,55 +5,74 @@ function Tf = computeFaceTransformation(f, localGeom, globalGeom, face_struct)
     Af = face_struct(f).area;
     qp = face_struct(f).quad_points;
     
+    % normal orientation  
+    normalDot = dot(localGeom.n, globalGeom.n);
+    
+    assert(abs(abs(normalDot) - 1) < 1e-10, 'Local/global normals are not parallel on face %d.', f);
+    
     % local outward normal relative to global/reference normal
-    normalSign = sign(dot(localGeom.n, globalGeom.n));
+    normalSign = sign(normalDot);
     
-    assert(abs(abs(dot(localGeom.n, globalGeom.n)) - 1) < 1e-10, 'Local/global normals are not parallel on face %d.', f);
+    % compare local and global face bases
+    errPlus = zeros(1,6);
+    errMinus = zeros(1,6);
     
-    Tf = zeros(6);
+    for q = 1:size(qp,2)
+    
+        xq = qp(:,q);
+    
+        % global/reference face basis 
+        PhiG = evaluateFaceBasis( ...
+            xq, xf, ...
+            globalGeom.Qf, ...
+            globalGeom.t1, globalGeom.t2, globalGeom.n, ...
+            Af, ...
+            globalGeom.m20, globalGeom.m02);
+    
+        % element-local face basis 
+        PhiL = evaluateFaceBasis( ...
+            xq, xf, ...
+            localGeom.Qf, ...
+            localGeom.t1, localGeom.t2, localGeom.n, ...
+            Af, ...
+            localGeom.m20, localGeom.m02);
+
+        % compare all six basis functions simultaneously
+        plusError = sqrt(sum((PhiL - PhiG).^2, 1));
+        minusError = sqrt(sum((PhiL + PhiG).^2, 1));
+    
+        errPlus = max(errPlus,  plusError);
+        errMinus = max(errMinus, minusError);
+    
+    end
+    
+    % determine basis signs   
+    scale = max([errPlus; errMinus; ones(1,6)], [], 1);
+    tol = 1e-10 * scale;
+    
+    basisSign = zeros(1,6);
     
     for j = 1:6
     
-        errPlus = 0;
-        errMinus = 0;
+        if errPlus(j) < tol(j)
     
-        for q = 1:size(qp,2)
+            % phi_local = phi_global
+            basisSign(j) = 1;
     
-            xq = qp(:,q);
+        elseif errMinus(j) < tol(j)
     
-            % global/reference traction basis
-            phiG = evaluateFaceBasis( ...
-                j, xq, xf, globalGeom.Qf, ...
-                globalGeom.t1, globalGeom.t2, globalGeom.n, ...
-                Af, globalGeom.m20, globalGeom.m02, globalGeom.m11);
-    
-            % element-local traction basis
-            phiL = evaluateFaceBasis( ...
-                j, xq, xf, localGeom.Qf, ...
-                localGeom.t1, localGeom.t2, localGeom.n, ...
-                Af, localGeom.m20, localGeom.m02, localGeom.m11);
-    
-            errPlus = max(errPlus,  norm(phiL - phiG));
-            errMinus = max(errMinus, norm(phiL + phiG));
-        end
-    
-        scale = max([errPlus, errMinus, 1]);
-        tol = 1e-10 * scale;
-    
-        % sign relating LOCAL BASIS to GLOBAL BASIS
-        if errPlus < tol
-            basisSign = 1;
-    
-        elseif errMinus < tol
-            basisSign = -1;
+            % phi_local = -phi_global
+            basisSign(j) = -1;
     
         else
+    
             error('Local/global basis cannot be matched by a sign change: face %d, basis %d.', f, j);
+    
         end
     
-        % stress DOF transformation also includes normal orientation
-        Tf(j,j) = normalSign * basisSign;
-    
     end
+
+    % local -> global stress DOF transformation
+    Tf = diag(normalSign * basisSign);
 
 end

@@ -94,7 +94,7 @@ function [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G)
         cells3D{c} = unique(verts_local(:), 'stable')';
     end
 
-    fprintf('\n');
+    % fprintf('\n');
     fprintf('3D mesh model info:\n');
     fprintf('  %d vertices\n', size(V3,1));
     fprintf('  %d cells\n',    nCells);
