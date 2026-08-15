@@ -1,0 +1,10 @@
+name: vem
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python
+  - numpy
+  - scipy
+  - pyvista
