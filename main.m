@@ -3,7 +3,7 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 % setupMRSTAuto();  % for MRST automatic setup
 
 %% STEP 1: LOAD MESH AND CHOOSE SOLVER TYPE (direct or iterative)
-meshOption = 3;
+meshOption = 3  ;
 solverOption = 'iterative'; 
 
 if meshOption == 1
@@ -82,11 +82,18 @@ K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 %% STEP 4: ASSEMBLE GLOBAL SYSTEM (GLOBAL LEVEL)
 fprintf('\n[# ASSEMBLE GLOBAL SYSTEM]\n');
 
-[K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
+% K = K^cons + K^stab; outputs 3 and 4 return the two parts separately
+[K_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
 
-K_global = K_cons_global + K_stab_global;
+% R_E : sigma_h|_E -> projected stress coefficients
+R_local = computeStressRecovery(cell_struct, face_struct, face_global_geom, B_local, P_local);
+
+clear A_local B_local D_local Bproj P_local K_cons K_stab
+
 A_global = [K_global, B_global';
             B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
+
+clear K_global
 
 rhs_D = assembleDirichletRHS(cell_struct, face_struct, face_global_geom);
 
@@ -118,4 +125,6 @@ errors = computeSolutionError(cell_struct, face_struct, sigma_h, u_h, face_globa
 
 %% STEP 6: ERROR COMPUTATION / MESH VISUALIZATION
 
-writeMeshVTU(fullfile('output', [meshName, '.vtu']), V3, cell_struct, face_struct);
+cellData = computeCellFields(cell_struct, R_local, sigma_h, u_h, errors);
+
+writeMeshVTU(fullfile('output', [meshName, '.vtu']), V3, cell_struct, face_struct, cellData);
