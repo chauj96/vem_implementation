@@ -97,3 +97,12 @@ function test_stabilization_constant(cell_struct, face_struct, B_local, K_stab)
     fprintf('=====================================================\n');
 
 end
+
+function p = prctile(x, q)
+% nearest-rank percentile (avoids the Statistics Toolbox)
+
+    xs = sort(x(:));
+    idx = max(1, ceil(q/100 * numel(xs)));
+    p = xs(idx);
+
+end
