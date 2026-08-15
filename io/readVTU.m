@@ -31,29 +31,11 @@ function pythonExe = findPythonWithPyVista()
 % find a Python executable with the required mesh-reader dependencies
 
     if ispc
-        candidates = {'python', 'py'};
         nullOutput = '> NUL 2>&1';
         nullError = '2> NUL';
     else
-        candidates = {'python3', 'python'};
         nullOutput = '> /dev/null 2>&1';
         nullError = '2> /dev/null';
-    end
-    
-    % check Python available on PATH
-    for k = 1:numel(candidates)
-    
-        python = candidates{k};
-    
-        command = sprintf('"%s" -c "import pyvista, numpy, scipy" %s', python, nullOutput);
-    
-        status = system(command);
-    
-        if status == 0
-            pythonExe = python;
-            return;
-        end
-    
     end
     
     % find Conda
@@ -87,7 +69,71 @@ function pythonExe = findPythonWithPyVista()
     
     end
     
-    % check Conda environments
+    % check VEM Conda environment first
+    if ~isempty(condaInfo)
+    
+        lines = splitlines(condaInfo);
+    
+        for k = 1:numel(lines)
+    
+            line = strtrim(lines{k});
+    
+            if isempty(line) || startsWith(line, '#')
+                continue;
+            end
+    
+            tokens = regexp(line, '\s+', 'split');
+    
+            if ~strcmp(tokens{1}, 'vem')
+                continue;
+            end
+    
+            envPath = tokens{end};
+    
+            if ispc
+                python = fullfile(envPath, 'python.exe');
+            else
+                python = fullfile(envPath, 'bin', 'python');
+            end
+    
+            if isfile(python)
+    
+                command = sprintf('"%s" -c "import pyvista, numpy, scipy" %s', python, nullOutput);
+                status = system(command);
+    
+                if status == 0
+                    pythonExe = python;
+                    return;
+                end
+    
+            end
+    
+        end
+    
+    end
+    
+    % check Python available on PATH
+    if ispc
+        candidates = {'python', 'py'};
+    else
+        candidates = {'python3', 'python'};
+    end
+    
+    for k = 1:numel(candidates)
+    
+        python = candidates{k};
+    
+        command = sprintf('"%s" -c "import pyvista, numpy, scipy" %s', python, nullOutput);
+        status = system(command);
+    
+        if status == 0
+            pythonExe = python;
+            return;
+        end
+    
+    end
+    
+    % check other Conda environments
     if ~isempty(condaInfo)
     
         lines = splitlines(condaInfo);
@@ -114,7 +160,7 @@ function pythonExe = findPythonWithPyVista()
             end
     
             command = sprintf('"%s" -c "import pyvista, numpy, scipy" %s', python, nullOutput);
-  
+    
             status = system(command);
     
             if status == 0
