@@ -157,10 +157,10 @@ function errors = computeSolutionError(cell_struct, face_struct, sigma_h, u_h, f
     
     fprintf('\n')
     fprintf('=====================================================\n');
-    fprintf('# SOLUTION ERROR CHECK\n');
+    fprintf('ERROR SUMMARY\n');
     fprintf('=====================================================\n');
     
-    fprintf('\nStress absolute error      : %.3e\n', errors.stress.abs);
+    fprintf('Stress absolute error      : %.3e\n', errors.stress.abs);
     fprintf('Stress relative error      : %.3e\n', errors.stress.rel);
 
     fprintf('\nDisplacement absolute error: %.3e\n', errors.displacement.abs);
