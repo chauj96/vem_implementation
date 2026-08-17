@@ -19,14 +19,11 @@ function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu
 
     for e = 1:nCells
         
-        % h_E = max_{i,j} |x_i - x_j|,  with
-        % |x_i - x_j|^2 = |x_i|^2 + |x_j|^2 - 2 x_i . x_j
-        X = V3(cells3D{e}, :);
+        % precompute cell diameter (kinda vectorization)
+        X = V3(cells3D{e}, :); 
+        pairwiseDist = pdist(X);
 
-        sq = sum(X.^2, 2);
-        pairwiseDist2 = sq + sq.' - 2*(X*X.');
-
-        cell_struct(e).diameter = sqrt(max(max(pairwiseDist2, 0), [], 'all'));
+        cell_struct(e).diameter = max(pairwiseDist);
 
         % assign the compliance tensor
         cell_struct(e).Cinv = Cinv;

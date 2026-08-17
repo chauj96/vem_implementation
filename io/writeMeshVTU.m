@@ -1,12 +1,5 @@
-function writeMeshVTU(filename, V3, cell_struct, face_struct, cellData)
+function writeMeshVTU(filename, V3, cell_struct, face_struct)
 % Write a 3D polyhedral mesh to a VTU file for visualization in ParaView.
-%
-% cellData is an optional struct whose fields become named cell arrays, each
-% nCells x nComp with nComp in {1, 3, 9} (scalar, vector, tensor).
-
-    if nargin < 5 || isempty(cellData)
-        cellData = struct();
-    end
 
     nCells = numel(cell_struct);
     nPts = size(V3,1);
@@ -83,10 +76,6 @@ function writeMeshVTU(filename, V3, cell_struct, face_struct, cellData)
     fprintf(fid, '<UnstructuredGrid>\n');
     fprintf(fid, '<Piece NumberOfPoints="%d" NumberOfCells="%d">\n', nPts, nCells);
 
-    %% Cell data
-
-    writeCellData(fid, cellData, nCells);
-
     %% Points
 
     fprintf(fid, '<Points>\n');
@@ -142,83 +131,6 @@ function writeMeshVTU(filename, V3, cell_struct, face_struct, cellData)
 
     fclose(fid);
 
-    names = fieldnames(cellData);
-
-    if isempty(names)
-        fprintf('\n[# Mesh written to %s]\n', filename);
-    else
-        fprintf('\n[# Mesh written to %s, cell fields: %s]\n', filename, strjoin(names.', ', '));
-    end
-
-end
-
-%% helper
-function writeCellData(fid, cellData, nCells)
-% write every field of cellData as a named VTK cell array
-
-    names = fieldnames(cellData);
-
-    if isempty(names)
-        return;
-    end
-
-    % the first field of each kind becomes the active one in ParaView
-    active = struct('Scalars', '', 'Vectors', '', 'Tensors', '');
-
-    nComponents = zeros(numel(names),1);
-
-    for k = 1:numel(names)
-
-        A = cellData.(names{k});
-
-        if size(A,1) ~= nCells
-            error('Cell field "%s" has %d rows, expected %d.', names{k}, size(A,1), nCells);
-        end
-
-        nComponents(k) = size(A,2);
-
-        switch nComponents(k)
-            case 1, kind = 'Scalars';
-            case 3, kind = 'Vectors';
-            case 9, kind = 'Tensors';
-            otherwise
-                error('Cell field "%s" has %d components, expected 1, 3 or 9.', names{k}, nComponents(k));
-        end
-
-        if isempty(active.(kind))
-            active.(kind) = names{k};
-        end
-
-    end
-
-    attributes = '';
-
-    for kind = {'Scalars','Vectors','Tensors'}
-
-        if ~isempty(active.(kind{1}))
-            attributes = [attributes, sprintf(' %s="%s"', kind{1}, active.(kind{1}))]; %#ok<AGROW>
-        end
-
-    end
-
-    fprintf(fid, '<CellData%s>\n', attributes);
-
-    for k = 1:numel(names)
-
-        A = cellData.(names{k});
-
-        fprintf(fid, '<DataArray type="Float64" Name="%s" NumberOfComponents="%d" format="ascii">\n', ...
-            names{k}, nComponents(k));
-
-        % one cell per line
-        format = [repmat('%.15g ', 1, nComponents(k)), '\n'];
-
-        fprintf(fid, format, A.');
-
-        fprintf(fid, '</DataArray>\n');
-
-    end
-
-    fprintf(fid, '</CellData>\n');
+    fprintf('\n[# Mesh written to %s]\n', filename);
 
 end
