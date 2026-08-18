@@ -8,9 +8,12 @@ function [err, results] = runPatchTestVTU(vtuFile, varargin)
 %   u(x) = G (x - x0) / L
 %
 % with x0 the centre of the mesh bounding box and L its characteristic length,
-% so u is O(1) over the domain whatever the mesh units. G has no zero entry:
-% every component of u varies in all three directions, and G has both a
-% symmetric and a skew part, so strain and rotation are exercised together.
+% so u is O(1) over the domain whatever the mesh units.
+%
+% G defaults to the identity: a uniform isotropic dilation, u = (x - x0)/L.
+% eps = I/L and sigma = (2 mu + 3 lambda) I / L are constant, and the rotation
+% is zero, so u_h reduces to a pure translation on each element. pass any other
+% 3x3 G to exercise shear and rotation as well.
 %
 % grad u = G/L is constant, hence eps = sym(G)/L and sigma = 2 mu eps +
 % lambda tr(eps) I are constant and f = div sigma = 0.
@@ -28,7 +31,7 @@ function [err, results] = runPatchTestVTU(vtuFile, varargin)
 % the distance from RM(E) to a linear field and is O(h) by construction.
 %
 % options
-%   G          displacement gradient, 3x3   (default has no zero entry)
+%   G          displacement gradient, 3x3   (default eye(3))
 %   lambda, mu                              (default 1, 1)
 %   solver     'iterative' | 'direct'       (default 'iterative')
 %   solverTol  tolerance of the iterative solve  (default 1e-5)
@@ -45,7 +48,7 @@ function [err, results] = runPatchTestVTU(vtuFile, varargin)
 % displacement_error and stress_error, which are the local Dassi L2 norms
 % ||Pi_RM u - u_h||_{0,E} and ||sigma - Pi_E sigma_h||_{0,E}.
 
-    opt = struct('G', [1 2 3; 4 5 6; 7 8 9], 'lambda',1, 'mu',1, ...
+    opt = struct('G', eye(3), 'lambda',1, 'mu',1, ...
                  'solver','iterative', 'solverTol',1e-5, 'quadDegree',2, ...
                  'tol',1e-4, 'output',fullfile('output','patch_test.vtu'), ...
                  'verbose',true);
