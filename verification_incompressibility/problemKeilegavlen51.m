@@ -32,7 +32,12 @@ function problem = problemKeilegavlen51(dim, kappa, alpha)
     problem.dim = dim;
     problem.kappa = kappa;
     problem.alpha = alpha;
-    problem.name = sprintf('Keilegavlen 5.1 %dD, kappa=%g, alpha=%g', dim, kappa, alpha);
+    if kappa == 1
+        % chi cancels: den == 1, so mu == 1 and lambda == alpha everywhere
+        problem.name = sprintf('Keilegavlen 5.1 %dD, homogeneous, alpha=%g', dim, alpha);
+    else
+        problem.name = sprintf('Keilegavlen 5.1 %dD, kappa=%g, alpha=%g', dim, kappa, alpha);
+    end
 
     if dim == 2
         problem.chi = @(x) double(min(x(1,:), x(2,:)) > 0.5);

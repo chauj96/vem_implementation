@@ -104,9 +104,13 @@ function G = evaluateProjectionBasis(x, xE)
     
     s = 1/sqrt(2);
     
+    % shear ordering must match projToMatrices: 4 -> yz, 5 -> xz, 6 -> xy.
+    % columns 4 and 6 were previously swapped, so shear stress coefficients were
+    % produced as xy/yz but interpreted as yz/xy. invisible for diagonal stress,
+    % an O(1) error for any shear
     G = [ ...
-        xr,  0,   0,   s*yr, s*zr, 0;
-        0,   yr,  0,   s*xr, 0,    s*zr;
-        0,   0,   zr,  0,    s*xr, s*yr ];
+        xr,  0,   0,   0,    s*zr, s*yr;
+        0,   yr,  0,   s*zr, 0,    s*xr;
+        0,   0,   zr,  s*yr, s*xr, 0    ];
 
 end
