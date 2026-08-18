@@ -2,6 +2,7 @@ function results = runConvergence51(varargin)
 % convergence test 5.1 of Keilegavlen & Nordbotten (2017)
 %
 %   runConvergence51('dim',3,'grid','simplex','nu',[0.25 0.495])
+%   runConvergence51('dim', 2, 'grid', 'cartesian', 'material', 'heterogeneous', 'kappa', 1e6, 'nu', 0.25, 'levels', [2 4 8 16 32]);
 %
 % options
 %   dim      2 or 3                                  (default 2)
@@ -121,6 +122,8 @@ function results = runConvergence51(varargin)
     if opt.verbose && numel(nuList) > 1
         printSummary(results);
     end
+
+    plotConvergence51(results);
 
 end
 
@@ -325,6 +328,54 @@ function setupVerificationPath()
         if isfolder(d) && ~contains([path pathsep], [d pathsep])
             addpath(d);
         end
+    end
+
+end
+
+function plotConvergence51(results)
+
+    for i = 1:numel(results)
+
+        r = results(i);
+
+        figure('Color', 'w');
+
+        loglog(r.h, r.eU,'-o', 'LineWidth', 1.5); 
+        hold on;
+        loglog(r.h, r.eDiv, '-s', 'LineWidth', 1.5);
+        loglog(r.h, r.eProj, '-^', 'LineWidth', 1.5);
+        loglog(r.h, r.eSig, '-d', 'LineWidth', 1.5);
+
+        % O(h) reference
+        ref = r.eSig(end) / r.h(end) * r.h;
+        loglog(r.h, ref, '--', 'LineWidth', 1.2);
+
+        grid on;
+        box on;
+
+        xlim([min(r.h)/1.1, max(r.h)*1.1]);
+        xticks(sort(r.h));
+        xticklabels(compose('%.4g', sort(r.h)));
+
+        xlabel('$h$', 'Interpreter', 'latex');
+        ylabel('Error');
+
+        legend('$E_u$', '$E_{\sigma,\mathrm{div}}$', '$E_{\sigma,\Pi}$', ...
+               '$E_\sigma$', ...
+               '$O(h)$', ...
+               'Interpreter', 'latex', ...
+               'Location', 'best');
+
+        if ~isempty(r.nu) && ~isnan(r.nu)
+            title(sprintf('Convergence Study ($\\nu = %.5g$)', r.nu), 'Interpreter', 'latex');
+        else
+            title('Convergence Study');
+        end
+
+        set(gca, 'FontSize', 12, 'TickLabelInterpreter', 'latex');
+
+        hold off;
+
     end
 
 end
