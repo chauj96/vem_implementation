@@ -1,5 +1,13 @@
-function writeMeshVTU(filename, V3, cell_struct, face_struct)
+function writeMeshVTU(filename, V3, cell_struct, face_struct, cellData)
 % Write a 3D polyhedral mesh to a VTU file for visualization in ParaView.
+%
+% cellData is an optional struct; each field is an nCells-by-nComp array
+% written as a cell-data array of the same name. nComp = 1, 3 and 9 are
+% tagged as scalars, vectors and tensors respectively.
+
+    if nargin < 5 || isempty(cellData)
+        cellData = struct();
+    end
 
     nCells = numel(cell_struct);
     nPts = size(V3,1);
@@ -122,6 +130,38 @@ function writeMeshVTU(filename, V3, cell_struct, face_struct)
     fprintf(fid, '\n</DataArray>\n');
 
     fprintf(fid, '</Cells>\n');
+
+    %% Cell data
+
+    dataNames = fieldnames(cellData);
+
+    if ~isempty(dataNames)
+
+        fprintf(fid, '<CellData>\n');
+
+        for k = 1:numel(dataNames)
+
+            name = dataNames{k};
+            A = cellData.(name);
+
+            assert(size(A,1) == nCells, ...
+                'Cell data "%s" has %d rows, expected %d.', name, size(A,1), nCells);
+
+            nComp = size(A,2);
+
+            fprintf(fid, ['<DataArray type="Float64" Name="%s" ' ...
+                          'NumberOfComponents="%d" format="ascii">\n'], name, nComp);
+
+            % column-major output of A' emits one cell per line
+            fprintf(fid, [repmat('%.15g ', 1, nComp) '\n'], A.');
+
+            fprintf(fid, '</DataArray>\n');
+
+        end
+
+        fprintf(fid, '</CellData>\n');
+
+    end
 
     %% Finish file
 
