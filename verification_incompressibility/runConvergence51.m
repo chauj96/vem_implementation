@@ -20,7 +20,13 @@ function results = runConvergence51(varargin)
 %   alpha    used only when nu is empty, for a direct lambda/mu
 %   perturb  interior vertex perturbation amplitude  (default 0)
 %   seed     rng seed for the perturbation           (default 0)
-%   solver   'direct' | 'iterative'                  (default 'direct')
+%   solver   'iterative' (default), 'direct' or 'gmres'.
+%              iterative : MINRES with a block incomplete-Cholesky
+%                          preconditioner, O(n) memory (solveSaddleLean)
+%              direct    : backslash; pays the fill-in of the saddle system,
+%                          which is expensive from 3D N = 16 (4096 cells) on
+%              gmres     : solvers/iterative_solver, right-preconditioned GMRES
+%                          with exact factorizations; the heaviest of the three
 %   quadDegree  exactness degree of the cell/face quadrature (default 6).
 %            the 5.1 solution is degree 6, so the Dirichlet integrand is
 %            degree 7; the built-in degree-2 rules under-integrate it
@@ -52,7 +58,7 @@ function results = runConvergence51(varargin)
                  'material','heterogeneous','kappa',1e6, ...
                  'alpha',1,'nu',[0.25 0.495 0.4995 0.49995], ...
                  'perturb',0,'seed',0, ...
-                 'solver','direct','verbose',true,'problem',[],'quadDegree',6, ...
+                 'solver','iterative','verbose',true,'problem',[],'quadDegree',6, ...
                  'bc','auto');
 
     for k = 1:2:numel(varargin)
@@ -143,7 +149,8 @@ function r = runOneStudy(opt, problem, nu, alpha)
         else
             head = sprintf('%s | nu = %g', problem.name, nu);
         end
-        fprintf('\n%s | %s grid | perturb %.3g | bc %s\n', head, opt.grid, opt.perturb, opt.bc);
+        fprintf('\n%s | %s grid | perturb %.3g | bc %s | solver %s\n', ...
+                head, opt.grid, opt.perturb, opt.bc, opt.solver);
         fprintf('%9s %7s %7s %11s %6s %11s %6s %11s %6s %11s %6s\n', ...
                 'dofs','cells','h','E_u','rate','E_sig,div','rate', ...
                 'E_sig,Pi','rate','E_sig','rate');
@@ -204,6 +211,15 @@ function r = runOneStudy(opt, problem, nu, alpha)
             case 'direct'
                 sol = A \ rhs;
             case 'iterative'
+                [sol, sinfo] = solveSaddleLean(A, rhs, nS, nD);
+                if sinfo.relres > 1e-8
+                    warning('N=%d: iterative solver reached relres %.2e only (flag %d, %d it)', ...
+                            r.N(k), sinfo.relres, sinfo.flag, sinfo.iterations);
+                end
+            case 'gmres'
+                % solvers/iterative_solver: right-preconditioned GMRES with exact
+                % factorizations of K and of the approximate Schur complement.
+                % much heavier than 'iterative' in both memory and time
                 [s_h, u_hh] = iterative_solver(A, rhs, cell_struct, face_struct);
                 sol = [s_h; u_hh];
             otherwise
