@@ -1,7 +1,7 @@
 function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local)
 % construct the local stabilization matrix K_E^{stab}
 %
-% k_E : 1/(2 mu) or infinity norm of C^{-1}
+% k_E : infinity norm of the cell compliance C^{-1}
 % h_E : diameter of cell E
 %
 % scaling factor: k_E * h_E
@@ -9,7 +9,6 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
     nCells = numel(cell_struct);
     K_stab = cell(nCells,1);
     
-    mu = 1; % need to come back for scaling!
     
     for e = 1:nCells
     
@@ -18,11 +17,12 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
     
         K_E = zeros(nDofs,nDofs);
     
-        kE = 1 / (2*mu);
-    
-        % alternative:
-        % Cinv = cell_struct(e).Cinv;
-        % kE = norm(Cinv,inf);
+        % k_E = 1/(2 mu), read off the cell's own compliance: Cinv(4,4) = 1/(2 mu)
+        % exactly. this is the DEVIATORIC compliance and carries no lambda, so the
+        % stabilization stays fixed as the material approaches incompressibility.
+        % the normal-block entries a, b both contain lambda, so ||C^-1||_inf or
+        % tr(C^-1) would make the stabilization drift with lambda
+        kE = cell_struct(e).Cinv(4,4);
     
         hE = cell_struct(e).diameter;
     
