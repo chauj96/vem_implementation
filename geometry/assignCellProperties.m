@@ -20,10 +20,14 @@ function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu
     for e = 1:nCells
         
         % precompute cell diameter (kinda vectorization)
-        X = V3(cells3D{e}, :); 
-        pairwiseDist = pdist(X);
+        X = V3(cells3D{e}, :);
 
-        cell_struct(e).diameter = max(pairwiseDist);
+        % pairwise squared distances via the Gram matrix
+        % (avoids pdist, which needs the Statistics Toolbox)
+        sq = sum(X.^2, 2);
+        D2 = sq + sq.' - 2*(X*X.');
+
+        cell_struct(e).diameter = sqrt(max(max(D2(:)), 0));
 
         % assign the compliance tensor
         cell_struct(e).Cinv = Cinv;

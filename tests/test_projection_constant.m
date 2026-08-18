@@ -108,3 +108,12 @@ function test_projection_constant(cell_struct, face_struct, P_local, B_local)
     fprintf('=====================================================\n');
 
 end
+
+function p = prctile(x, q)
+% nearest-rank percentile (avoids the Statistics Toolbox)
+
+    xs = sort(x(:));
+    idx = max(1, ceil(q/100 * numel(xs)));
+    p = xs(idx);
+
+end
