@@ -165,6 +165,9 @@ function r = runOneStudy(opt, problem, nu, alpha)
 
         [cell_struct, face_struct, V3, cells3D] = makeMesh(opt, r.N(k));
 
+        % visualize the current mesh
+        plotMesh51(face_struct, V3, opt, r.N(k)); 
+
         cell_struct = assignCellPropertiesFun(cell_struct, V3, cells3D, problem);
 
         switch opt.bc
@@ -369,7 +372,7 @@ function plotConvergence51(results)
         if ~isempty(r.nu) && ~isnan(r.nu)
             title(sprintf('Convergence Study ($\\nu = %.5g$)', r.nu), 'Interpreter', 'latex');
         else
-            title('Convergence Study');
+            title('Convergence');
         end
 
         set(gca, 'FontSize', 12, 'TickLabelInterpreter', 'latex');
@@ -377,5 +380,72 @@ function plotConvergence51(results)
         hold off;
 
     end
+
+end
+
+function plotMesh51(face_struct, V3, opt, N)
+% visualize the mesh used in the convergence study
+
+    figure('Color', 'w');
+    hold on;
+
+    if opt.dim == 2
+
+        %% 2D: top view of the quasi-2D slab
+        zmin = min(V3(:,3));
+        tol = 1e-10;
+
+        for f = 1:numel(face_struct)
+
+            verts = face_struct(f).verts(:);
+            P = V3(verts,:);
+
+            % Plot only the bottom faces
+            if all(abs(P(:,3) - zmin) < tol)
+
+                patch('Vertices', V3, ...
+                      'Faces', verts.', ...
+                      'FaceColor', 'none', ...
+                      'EdgeColor', 'k', ...
+                      'LineWidth', 0.7);
+            end
+        end
+
+        view(2);
+        axis equal tight;
+
+        xlabel('$x$', 'Interpreter', 'latex');
+        ylabel('$y$', 'Interpreter', 'latex');
+
+    else
+
+        %% 3D
+        for f = 1:numel(face_struct)
+
+            verts = face_struct(f).verts(:);
+
+            patch('Vertices', V3, ...
+                  'Faces', verts.', ...
+                  'FaceColor', 'none', ...
+                  'EdgeColor', 'k', ...
+                  'LineWidth', 0.4);
+        end
+
+        view(3);
+        axis equal tight;
+
+        xlabel('$x$', 'Interpreter', 'latex');
+        ylabel('$y$', 'Interpreter', 'latex');
+        zlabel('$z$', 'Interpreter', 'latex');
+
+    end
+
+    box on;
+    grid off;
+
+    title(sprintf('%dD %s mesh, $N=%d$', opt.dim, opt.grid, N), 'Interpreter', 'latex');
+    set(gca, 'FontSize', 12, 'TickLabelInterpreter', 'latex');
+
+    hold off;
 
 end
