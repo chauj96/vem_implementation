@@ -340,24 +340,24 @@ function plotConvergence51(results)
 
         figure('Color', 'w');
 
-        loglog(r.h, r.eU,'-o', 'LineWidth', 1.5); 
+        loglog(r.N, r.eU,    '-o', 'LineWidth', 1.5); 
         hold on;
-        loglog(r.h, r.eDiv, '-s', 'LineWidth', 1.5);
-        loglog(r.h, r.eProj, '-^', 'LineWidth', 1.5);
-        loglog(r.h, r.eSig, '-d', 'LineWidth', 1.5);
+        loglog(r.N, r.eDiv,  '-s', 'LineWidth', 1.5);
+        loglog(r.N, r.eProj, '-^', 'LineWidth', 1.5);
+        loglog(r.N, r.eSig,  '-d', 'LineWidth', 1.5);
 
         % O(h) reference
-        ref = r.eSig(end) / r.h(end) * r.h;
-        loglog(r.h, ref, '--', 'LineWidth', 1.2);
+        ref = r.eSig(end) * r.N(end) ./ r.N;
+        loglog(r.N, ref, '--', 'LineWidth', 1.2);
 
         grid on;
         box on;
 
-        xlim([min(r.h)/1.1, max(r.h)*1.1]);
-        xticks(sort(r.h));
-        xticklabels(compose('%.4g', sort(r.h)));
+        xlim([min(r.N)/1.1, max(r.N)*1.1]);
+        xticks(r.N);
+        xticklabels(compose('%g', r.N));
 
-        xlabel('$h$', 'Interpreter', 'latex');
+        xlabel('$N = 1/h$', 'Interpreter', 'latex');
         ylabel('Error');
 
         legend('$E_u$', '$E_{\sigma,\mathrm{div}}$', '$E_{\sigma,\Pi}$', ...
