@@ -33,7 +33,9 @@ function [err, results] = runPatchTestVTU(vtuFile, varargin)
 % options
 %   G          displacement gradient, 3x3   (default eye(3))
 %   lambda, mu                              (default 1, 1)
-%   solver     'iterative' | 'direct'       (default 'iterative')
+%   solver     'iterative' | 'direct' | 'hybrid'   (default 'iterative')
+%              'hybrid' releases traction continuity, eliminates sigma and u
+%              elementwise and solves an SPD system for the face multipliers
 %   solverTol  tolerance of the iterative solve  (default 1e-5)
 %   quadDegree                              (default 2; the fields are linear)
 %   tol        pass threshold on the error norms  (default 1e-4). the solve sets
@@ -112,11 +114,7 @@ function [err, results] = runPatchTestVTU(vtuFile, varargin)
         fprintf('%-14s %11.3e %11.3e %11.3e %11.3e\n', 'error', ...
                 err.displacementRM, err.divergence, err.projection, err.stress);
 
-        fprintf('\n%s (all norms below %.0e, solverTol %.0e)\n', ...
-                ternary(results.pass,'PASS','FAIL'), opt.tol, opt.solverTol);
-        fprintf('||u - u_h||_0 = %.3e, Dassi''s norm against the exact field:\n', ...
-                err.displacement);
-        fprintf('O(h) by construction, not part of the verdict.\n');
+        fprintf('\n%s (tol %.0e)\n', ternary(results.pass,'PASS','FAIL'), opt.tol);
 
     end
 
@@ -143,33 +141,50 @@ function [err, cd, cell_struct] = solveOne(cell_struct, face_struct, V3, cells3D
     K_cons = computeConsistency(cell_struct, P_local);
     K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-    [K_global, B_global] = assembleSaddleSystem(cell_struct, face_struct, ...
-                               face_global_geom, B_local, K_cons, K_stab);
-
-    clear A_local Bproj K_cons K_stab
-
     nS = 6*numel(face_struct);
     nD = 6*numel(cell_struct);
 
-    A = [K_global, B_global.'; B_global, sparse(nD,nD)];
-    clear K_global B_global
+    rhs_g = assembleDirichletRHSFun(cell_struct, face_struct, face_global_geom, problem);
+    rhs_f = assembleBodyForce(cell_struct, problem);
 
-    rhs = [assembleDirichletRHSFun(cell_struct, face_struct, face_global_geom, problem);
-           assembleBodyForce(cell_struct, problem)];
+    if strcmp(opt.solver, 'hybrid')
 
-    switch opt.solver
-        case 'direct'
-            sol = A \ rhs;
-        case 'iterative'
-            sol = solveSaddleLean(A, rhs, nS, nD, opt.solverTol);
-        otherwise
-            error('Unknown solver "%s".', opt.solver);
+        % the hybrid path eliminates sigma and u elementwise, so it needs the
+        % local matrices rather than the assembled saddle system
+        clear A_local Bproj
+
+        [sigma_h, u_h] = solveSaddleHybrid(cell_struct, face_struct, ...
+            face_global_geom, B_local, K_cons, K_stab, rhs_g, rhs_f, opt.solverTol);
+
+        clear K_cons K_stab
+
+    else
+
+        [K_global, B_global] = assembleSaddleSystem(cell_struct, face_struct, ...
+                                   face_global_geom, B_local, K_cons, K_stab);
+
+        clear A_local Bproj K_cons K_stab
+
+        A = [K_global, B_global.'; B_global, sparse(nD,nD)];
+        clear K_global B_global
+
+        rhs = [rhs_g; rhs_f];
+
+        switch opt.solver
+            case 'direct'
+                sol = A \ rhs;
+            case 'iterative'
+                sol = solveSaddleLean(A, rhs, nS, nD, opt.solverTol);
+            otherwise
+                error('Unknown solver "%s".', opt.solver);
+        end
+
+        clear A
+
+        sigma_h = sol(1:nS);
+        u_h = sol(nS+1:end);
+
     end
-
-    clear A
-
-    sigma_h = sol(1:nS);
-    u_h = sol(nS+1:end);
 
     err = computeErrorsDassi(cell_struct, face_struct, face_global_geom, V3, ...
                              B_local, D_local, P_local, sigma_h, u_h, problem);
