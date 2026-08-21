@@ -87,7 +87,7 @@ function [sigma_h, u_h, info] = solveSaddleHybrid(cell_struct, face_struct, ...
         E(:,1) = [rhs_g(sDofs); rhs_f(dDofs)];
         E(sub2ind([nl n+1], loc(:), (2:n+1).')) = 1;
 
-        W = M \ E;
+        W = solveLocalSaddle(M, E);
 
         if n == 0
             continue;
@@ -146,7 +146,7 @@ function [sigma_h, u_h, info] = solveSaddleHybrid(cell_struct, face_struct, ...
         rhsE = [rhs_g(sDofs); rhs_f(dDofs)];
         rhsE(loc) = rhsE(loc) - sg .* lambda(glb);
 
-        w = M \ rhsE;
+        w = solveLocalSaddle(M, rhsE);
 
         sE = w(1:numel(sDofs));
 
@@ -178,6 +178,25 @@ function [sigma_h, u_h, info] = solveSaddleHybrid(cell_struct, face_struct, ...
 end
 
 %% ------------------------------------------------------------------
+
+function X = solveLocalSaddle(M, RHS)
+% solve M X = RHS after symmetric equilibration, returning X in the original
+% variables
+%
+%   M x = b   <=>   (S M S)(S^-1 x) = S b,   S = diag(s)
+%
+% The zero (2,2) block makes the raw local saddle matrix badly scaled: on the
+% two-fault mesh cond(M_E) reaches 2.4e25 and MATLAB reports rcond ~ 1e-19,
+% while row-inf-norm equilibration brings the worst case to 4.4e8. B_E has full
+% row rank on every element, so this is scaling and not a degeneracy.
+
+    s = 1 ./ sqrt(max(max(abs(M), [], 2), realmin));
+
+    % (s*s') .* M is bitwise symmetric, so the solver keeps the LDL path;
+    % (s.*M).*s' is not, and falls back to general LU
+    X = s .* (((s * s.') .* M) \ (s .* RHS));
+
+end
 
 function [M, tE, sDofs, dDofs] = localSaddle(e, cell_struct, face_struct, ...
                                      face_global_geom, B_local, K_cons, K_stab, tE)
