@@ -7,8 +7,8 @@ function sl = localStressDofs(e, cell_struct, face_struct, face_global_geom, B_l
 
     for lf = 1:numel(fl)
         f = fl(lf);
-        Tf = computeFaceTransformation(f, B_local{e}.geom(lf), face_global_geom(f), face_struct);
-        sl(6*(lf-1) + (1:6)) = diag(Tf) .* sigma_h(6*(f-1) + (1:6));
+        d = faceSignTransformation(f, B_local{e}.geom(lf), face_global_geom(f));
+        sl(6*(lf-1) + (1:6)) = d .* sigma_h(6*(f-1) + (1:6));
     end
 
 end
