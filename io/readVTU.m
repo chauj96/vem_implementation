@@ -1,28 +1,82 @@
 function [cell_struct, face_struct, V3, cells3D] = readVTU(filename)
 % read a VTU mesh using Python/PyVista
+%
+% The reader rebuilds the global face structure with per-cell, per-face Python
+% loops, which costs ~17 s on a 1e4-cell mesh and dominates a run. The result
+% depends only on the file, so it is cached beside it as <name>.vemcache.mat,
+% keyed on the file's size and modification time. Set VEM_NOCACHE=1 to bypass.
+
+    cacheFile = [filename '.vemcache.mat'];
+    useCache = isempty(getenv('VEM_NOCACHE'));
+
+    key = cacheKey(filename);
+
+    if useCache && isfile(cacheFile)
+
+        try
+
+            cached = load(cacheFile);
+
+            if isfield(cached, 'key') && isequal(cached.key, key)
+
+                cell_struct = cached.cell_struct;
+                face_struct = cached.face_struct;
+                V3 = cached.V3;
+                cells3D = cached.cells3D;
+
+                return;
+
+            end
+
+        catch
+            % unreadable or stale cache: fall through and rebuild
+        end
+
+    end
 
     pythonExe = findPythonWithPyVista();
-    
+
     rootDir = fileparts(fileparts(mfilename('fullpath')));
     pythonScript = fullfile(rootDir, 'meshes', 'mesh_reader.py');
     matfile = [tempname, '.mat'];
-    
+
     command = sprintf('"%s" "%s" "%s" "%s"', pythonExe, pythonScript, filename, matfile);
-    
+
     status = system(command);
-    
+
     if status ~= 0
         error('Python mesh reader failed.');
     end
-    
+
     data = load(matfile);
-    
+
     cell_struct = data.cell_struct;
     face_struct = data.face_struct;
     V3 = data.V3;
     cells3D = data.cells3D;
-    
+
     delete(matfile);
+
+    if useCache
+
+        try
+            save(cacheFile, 'key', 'cell_struct', 'face_struct', 'V3', 'cells3D', '-v7.3');
+        catch
+            % a read-only mesh directory is not a reason to fail the run
+        end
+
+    end
+
+end
+
+function key = cacheKey(filename)
+% identity of the source file: size and modification time
+
+    d = dir(filename);
+
+    assert(~isempty(d), 'Mesh file not found: %s', filename);
+
+    key = struct('bytes', d.bytes, 'datenum', d.datenum);
 
 end
 
