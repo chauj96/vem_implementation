@@ -166,7 +166,7 @@ function r = runOneStudy(opt, problem, nu, alpha)
         [cell_struct, face_struct, V3, cells3D] = makeMesh(opt, r.N(k));
 
         % visualize the current mesh
-        plotMesh51(face_struct, V3, opt, r.N(k)); 
+        % plotMesh51(face_struct, V3, opt, r.N(k)); 
 
         cell_struct = assignCellPropertiesFun(cell_struct, V3, cells3D, problem);
 
