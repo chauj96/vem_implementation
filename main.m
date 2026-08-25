@@ -82,17 +82,17 @@ K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 %% STEP 4: ASSEMBLE GLOBAL SYSTEM (GLOBAL LEVEL)
 fprintf('\n[# ASSEMBLE GLOBAL SYSTEM]\n');
 
+bodyForce = @(x) zeros(3, size(x,2));
+rhs_D = assembleDirichletRHS(cell_struct, face_struct, face_global_geom);
+rhs_f = assembleForceRHS(cell_struct, bodyForce);
+rhs = [rhs_D;
+        -rhs_f];
+
 [K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
 
 K_global = K_cons_global + K_stab_global;
 A_global = [K_global, B_global';
             B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
-
-rhs_D = assembleDirichletRHS(cell_struct, face_struct, face_global_geom);
-
-% f = 0 (just for now)
-rhs = [rhs_D;
-       zeros(nDispDofs,1)];
 
 [A_global, rhs, ~, ~] = assembleNeumann(face_struct, A_global, rhs, face_global_geom, lambda, mu);
 
