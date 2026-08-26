@@ -1,38 +1,97 @@
 # VEM Implementation
 
-MATLAB implementation of a mixed Virtual Element Method (VEM) for three-dimensional linear elasticity on general polyhedral meshes. The code supports simulations on general 3D polyhedral meshes. Mesh geometry can either be loaded from preprocessed MATLAB `.mat` files or reconstructed directly from `.vtu` files.
+MATLAB implementation of a mixed and hybridized Virtual Element Method (VEM) for three-dimensional linear elasticity on general polyhedral meshes. The code provides several options for **(1) the VEM formulation**, **(2) mesh geometry** and **(3) linear solver** as described below.
 
-## Available Meshes
+## Formulations
+#### Mixed VEM
 
-Three example mesh models are currently included:
+The mixed formulation assembles and solves the global saddle-point system for stress and displacement:
+
+```math
+\begin{bmatrix}
+K & B^T \\
+B & 0
+\end{bmatrix}
+\begin{bmatrix}
+\sigma \\
+u
+\end{bmatrix}
+=
+\begin{bmatrix}
+g \\
+-f
+\end{bmatrix}.
+```
+
+#### Hybridized VEM
+
+The hybridized formulation treats element stress unknowns independently and enforces traction continuity across interior faces through Lagrange multipliers:
+
+```math
+\begin{bmatrix}
+\widehat{K} & \widehat{B}^T & -C^T \\
+\widehat{B} & 0 & 0 \\
+C & 0 & 0
+\end{bmatrix}
+\begin{bmatrix}
+\widehat{\sigma} \\
+u \\
+\lambda
+\end{bmatrix}
+=
+\begin{bmatrix}
+g \\
+-f \\
+0
+\end{bmatrix}.
+```
+
+The element-local stress and displacement unknowns are eliminated, reducing the global problem to
+
+$$
+H\lambda = h,
+\qquad
+H \in \mathbb{R}^{6N_f^{\mathrm{int}} \times 6N_f^{\mathrm{int}}}.
+$$
+
+Once $\lambda$ is obtained, $(\sigma_E,u_E)$ are recovered independently on each element.
+
+The formulation can be selected in `main.m` using
+
+```matlab
+formOption = 'mixed';
+formOption = 'hybrid';
+```
+
+## Mesh Geometry
+
+Three 3D mesh models are provided by default with mesh data available in both MATLAB `.mat` and `.vtu` formats:
 
 1. **Unit cube**  
-   A structured Cartesian mesh generated using MRST.
+   A structured Cartesian mesh generated directly using MRST.
 
 2. **Two-fault model**  
-   A faulted polyhedral mesh. Preprocessed mesh geometry is provided as a MATLAB `.mat` file.
+   A faulted polyhedral mesh.
 
 3. **Polyhedral Voronoi model**  
-   A general polyhedral Voronoi mesh. Preprocessed mesh geometry is also provided as a MATLAB `.mat` file.
+   A general polyhedral Voronoi mesh.
 
-The two-fault and polyhedral Voronoi examples can therefore be run directly from the provided `.mat` files without using the Python-based VTU reader.
+The provided `.mat` files contain preprocessed mesh geometry and can be used directly in MATLAB. The `.vtu` files can be used to reconstruct the geometry through the VTU reader.
 
-## Reading Custom VTU Meshes
+### Reading Custom VTU Meshes
 
-The code also provides a general VTU mesh reader for users who want to run the VEM implementation on their own polyhedral meshes.
+The VTU reader is also supported for users who want to run the VEM implementation on their own 3D polyhedral meshes. The reader uses **PyVista** to extract the polyhedral topology and reconstruct the geometric quantities required by the VEM formulation including
 
-The VTU reader uses **PyVista** to extract the polyhedral topology and reconstructs the geometric quantities required by the MFD/VEM formulation, including
-
-- global faces and cell-to-face connectivity,
-- face areas, centroids, and normals,
-- cell volumes and centroids,
-- local face orientations.
+- global faces and cell-to-face connectivity
+- face areas, centroids, and normals
+- cell volumes and centroids
+- local face orientations
 
 The reconstructed geometry is additionally checked against the discrete divergence consistency identity which provides a numerical consistency check for the geometric quantities used by the MFD/VEM discretization.
 
 ### Python Environment Setup
 
-The VTU reader requires Python with `PyVista`, `NumPy`, and `SciPy`. A Conda environment file is provided with the repository.
+So the VTU reader requires Python with `PyVista`, `NumPy`, and `SciPy`. A Conda environment file is provided with the repository.
 
 Clone the repository and enter the project directory:
 
@@ -73,23 +132,28 @@ If the environment is configured correctly, this should print
 VEM environment ready
 ```
 
-The MATLAB VTU reader automatically searches for the `vem` Conda environment and uses it to execute the Python mesh reader.
-
-## Running the Code
-
-Open the repository in MATLAB and run
-
-```matlab
-main
-```
-
-The mesh and solver options (direct or iterative) can be selected near the beginning of `main.m`.
-
-For a custom VTU mesh, specify the mesh file and load it using
+The reader automatically searches for the `vem` Conda environment and uses it to execute the Python mesh reader. 
+Once the environment is ready, a custom VTU mesh can be loaded directly in `main.m` using
 
 ```matlab
 filename = 'meshes/your_mesh.vtu';
 [cell_struct, face_struct, V3, cells3D] = readVTU(filename);
 ```
 
-The mesh geometry will be reconstructed and checked before being used by the VEM implementation.
+The mesh geometry is then automatically reconstructed and the user is notified whether the mesh is suitable for use with the VEM discretization.
+
+## Linear Solver and Running the Code
+
+Once the mesh and VEM formulation are selected, the corresponding linear solver can be specified. The available solver options for each formulation are summarized below.
+
+| Formulation | Solver | Description |
+|---|---|---|
+| **Mixed VEM** | **Direct** | Direct solution of the global saddle-point system. |
+|  | **Iterative** | GMRES with a block Schur complement preconditioner. |
+| **Hybridized VEM** | **PCG** | Automatically used for the reduced multiplier system $H\lambda=h$, followed by element-local recovery. |
+
+When the options are fully configured, run
+
+```matlab
+main
+```
