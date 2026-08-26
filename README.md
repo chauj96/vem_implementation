@@ -1,4 +1,4 @@
-# VEM Implementation
+# 3D Mixed and Hybridized VEM
 
 MATLAB implementation of a mixed and hybridized Virtual Element Method (VEM) for three-dimensional linear elasticity on general polyhedral meshes. The code provides several options for **(1) the VEM formulation**, **(2) mesh geometry** and **(3) linear solver** as described below.
 
