@@ -2,9 +2,8 @@
 addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('FACTORIZE'));
 % setupMRSTAuto();  % for MRST automatic setup
 
-%% STEP 1: LOAD MESH AND CHOOSE SOLVER TYPE (direct or iterative)
-meshOption = 3;
-solverOption = 'iterative'; 
+%% STEP 1: LOAD MESH AND CHOOSE SYSTEM (mixed or hybrid), SOLVER TYPE (direct or iterative)
+[meshOption, formOption, solverOption] = deal(2, 'hybrid', 'iterative');
 
 if meshOption == 1
     % unit cube
@@ -61,7 +60,7 @@ face_struct = computeFaceQuadrature(face_struct, V3);
 nStressDofs = 6*numel(face_struct);
 nDispDofs = 6*numel(cell_struct);
 
-%% STEP 3: COMPUTE VEM MATRICES (LOCAL LEVEL)
+%% STEP 3: (LOCAL LEVEL) COMPUTE VEM MATRICES
 fprintf('\n[# COMPUTE LOCAL OPERATORS]\n');
 
 % INERTIA MATRIX (quadrature approach, Tonon approach)
@@ -79,38 +78,24 @@ P_local = computeProjectionMatrix(cell_struct, Bproj);
 K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-%% STEP 4: ASSEMBLE GLOBAL SYSTEM (GLOBAL LEVEL)
-fprintf('\n[# ASSEMBLE GLOBAL SYSTEM]\n');
+%% STEP 4: (GLOBAL LEVEL) ASSEMBLE AND SOLVE GLOBAL SYSTEM
 
+% apply Dirichlet boundary condition and body force on RHS
 bodyForce = @(x) zeros(3, size(x,2));
 rhs_D = assembleDirichletRHS(cell_struct, face_struct, face_global_geom);
-rhs_f = assembleForceRHS(cell_struct, bodyForce);
-rhs = [rhs_D;
-        -rhs_f];
+rhs_f = -assembleForceRHS(cell_struct, bodyForce);
 
-[K_cons_global, K_stab_global, B_global] = assembleGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab);
+switch formOption
 
-K_global = K_cons_global + K_stab_global;
-A_global = [K_global, B_global';
-            B_global, sparse(6*numel(cell_struct), 6*numel(cell_struct))];
+    case 'mixed'
 
-[A_global, rhs, ~, ~] = assembleNeumann(face_struct, A_global, rhs, face_global_geom, lambda, mu);
+        [sigma_h, u_h] = solveMixedVEM(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, rhs_D, rhs_f, lambda, mu, solverOption);
 
-%% STEP 5: SOLVE GLOBAL SYSTEM
-fprintf('\n[# SOLVE THE LINEAR SYSTEM: %d x %d]\n', size(A_global,1), size(A_global,2));
-
-switch solverOption
-
-    case 'direct'
-        sol = A_global \ rhs;
-        sigma_h = sol(1:nStressDofs);
-        u_h = sol(nStressDofs+1:end);
-
-    case 'iterative'
-        [sigma_h, u_h] = iterative_solver(A_global, rhs, cell_struct, face_struct);
+    case 'hybrid'
+        [sigma_h, u_h] = solveHybridVEM(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, rhs_D, rhs_f, lambda, mu);
 
     otherwise
-        error('Unknown solver option: %s', solverOption);
+        error('Unknown VEM formulation: %s', formOption);
 
 end
 
