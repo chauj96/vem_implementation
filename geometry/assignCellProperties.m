@@ -1,4 +1,4 @@
-function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu)
+function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0)
 % assign cell-level geometric and material properties
 % (1) element diameter, (2) compliance tensor
 
@@ -6,6 +6,7 @@ function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu
     a = (lambda + mu) / (mu * (3*lambda + 2*mu));
     b = -lambda / (2*mu * (3*lambda + 2*mu));
     c = 1 / (2*mu);
+    kappa = lambda + 2*mu/3;
     
     Cinv = [ ...
         a, b, b, 0, 0, 0;
@@ -14,6 +15,9 @@ function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu
         0, 0, 0, c, 0, 0;
         0, 0, 0, 0, c, 0;
         0, 0, 0, 0, 0, c];
+
+    % flow properties
+    K_perm = eye(3);
 
     nCells = numel(cell_struct);
 
@@ -31,6 +35,15 @@ function cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu
 
         % assign the compliance tensor
         cell_struct(e).Cinv = Cinv;
+
+        cell_struct(e).alpha = alpha;
+        cell_struct(e).kappa = kappa;
+        cell_struct(e).s0 = s0;
+        cell_struct(e).lambda = lambda;
+        cell_struct(e).mu = mu;
+
+        % flow
+        cell_struct(e).perm = K_perm;
 
     end
 

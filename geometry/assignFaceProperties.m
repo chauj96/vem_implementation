@@ -1,30 +1,36 @@
 function face_struct = assignFaceProperties(face_struct)
-% find boundary faces and tagging boundary conditions
+% identify boundary faces and tag boundary conditions
+%
+% manufactured solution for spatial convergence test
+%   Mechanics : prescribed displacement on entire boundary -> u = u_exact
+%   Flow      : prescribed pressure on entire boundary -> p = p_exact
 
-    tol = 1e-10;
     nFaces = numel(face_struct);
-    
+
     for f = 1:nFaces
-    
+
+        % boundary flag
         face_struct(f).is_boundary = false;
-        face_struct(f).is_dirichlet = false;
-        face_struct(f).is_neumann = false;
-    
+
+        % mechanics
+        face_struct(f).is_displacement_bc = false;
+        face_struct(f).is_traction_bc = false;
+
+        % flow
+        face_struct(f).is_pressure_bc = false;
+        face_struct(f).is_flux_bc = false;
+
         % exterior face
         if isscalar(face_struct(f).cells)
-    
+
             face_struct(f).is_boundary = true;
-    
-            xf = face_struct(f).center(:);
-    
-            % Gamma_D: x = 0
-            if abs(xf(1)) < tol
-                face_struct(f).is_dirichlet = true;
-    
-            % Gamma_N: rest of boundary
-            else
-                face_struct(f).is_neumann = true;
-            end
+
+            % Gamma_u = boundary of Omega
+            face_struct(f).is_displacement_bc = true;
+
+            % Gamma_p = boundary of Omega
+            face_struct(f).is_pressure_bc = true;
+
         end
     end
 
