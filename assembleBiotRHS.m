@@ -1,25 +1,25 @@
-function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, face_global_geom)
-% assemble RHS vectors for Biot spatial convergence test
+function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, face_global_geom, t)
+% assemble RHS vectors for Biot temporal convergence test
 %
 % Exact solution:
-%   u = [x^2; y^2; z^2]
-%   p = x^2 + y^2 + z^2
+%   u = exp(t) * [x^2; y^2; z^2]
+%   p = exp(t) * (x^2 + y^2 + z^2)
 %
 % Exact stress:
-%   sigma = [6*x+2*y+2*z-p,             0,             0;
-%                         0, 2*x+6*y+2*z-p,             0;
-%                         0,             0, 2*x+2*y+6*z-p]
+%   sigma = exp(t) * sigma_0
 %
 % Exact Darcy flux:
-%   w = [-2*x; -2*y; -2*z]
+%   w = exp(t) * [-2*x; -2*y; -2*z]
 %
 % Source terms:
-%   b   = [2*x-6; 2*y-6; 2*z-6]
-%   psi = -6
+%   b = exp(t) * [2*x-6; 2*y-6; 2*z-6]
+%   psi = exp(t) * (x^2+y^2+z^2 + 2*x+2*y+2*z - 6)
 %
 % Boundary conditions:
-%   u = u_exact on entire boundary
-%   p = p_exact on entire boundary
+%   u = u_exact(x,t) on entire boundary
+%   p = p_exact(x,t) on entire boundary
+
+    et = exp(t);
 
     nCells = numel(cell_struct);
     nFaces = numel(face_struct);
@@ -36,7 +36,7 @@ function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, fa
 
 
     %% 1. BODY FORCE
-    % b = [2*x-6; 2*y-6; 2*z-6]
+    % b = exp(t) * [2*x-6; 2*y-6; 2*z-6]
     %
     % Since b is affine and xE is the cell centroid,
     % its translational moments are exactly volume*b(xE).
@@ -47,7 +47,7 @@ function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, fa
         volume = cell_struct(e).volume;
         xE = cell_struct(e).center(:);
 
-        bE = [ ...
+        bE = et * [ ...
             2*xE(1) - 6;
             2*xE(2) - 6;
             2*xE(3) - 6 ];
@@ -119,7 +119,7 @@ function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, fa
             xq = qp(:,q);
 
             % exact displacement
-            gu = [xq(1)^2; xq(2)^2; xq(3)^2];
+            gu = et * [xq(1)^2; xq(2)^2; xq(3)^2];
 
             % traction basis in global/reference convention
             PhiG = evaluateFaceBasis( ...
@@ -204,7 +204,7 @@ function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, fa
             y = xq(2);
             z = xq(3);
 
-            gp = x^2 + y^2 + z^2;
+            gp = et * (x^2 + y^2 + z^2);
 
             gp_integral = gp_integral + qw(q) * gp;
 
@@ -218,16 +218,32 @@ function [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, fa
 
 
     %% 4. FLUID SOURCE
-    % psi = div(w) = -6
-    %
-    % f_p,E = integral_E psi dE = -6 * |E|
-
     for e = 1:nCells
-
-        volume = cell_struct(e).volume;
-
-        f_p(e) = -6 * volume;
-
+    
+        qp = cell_struct(e).quad_points;
+        qw = cell_struct(e).quad_weights;
+    
+        fp_local = 0;
+    
+        for q = 1:numel(qw)
+    
+            xq = qp(:,q);
+    
+            x = xq(1);
+            y = xq(2);
+            z = xq(3);
+    
+            psi = et * ( ...
+                x^2 + y^2 + z^2 ...
+                + 2*x + 2*y + 2*z ...
+                - 6 );
+    
+            fp_local = fp_local + qw(q) * psi;
+    
+        end
+    
+        f_p(e) = fp_local;
+    
     end
 
 end
