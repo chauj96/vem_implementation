@@ -33,7 +33,6 @@ function [K_global, B_global, D_global, A_global, E_global, M_global] = assemble
 
         %% ========================================================
         % MIXED VEM
-        % =========================================================
 
         nLocalStressDofs = 6 * nElementFaces;
 
@@ -84,7 +83,6 @@ function [K_global, B_global, D_global, A_global, E_global, M_global] = assemble
 
         %% ========================================================
         % MIXED MFD
-        % =========================================================
 
         % one global flux DOF per face
         fluxDofs = elementFaces;
@@ -105,11 +103,6 @@ function [K_global, B_global, D_global, A_global, E_global, M_global] = assemble
         EE = E_mfd_local{e};
 
         E_global(e, fluxDofs) = E_global(e, fluxDofs) + EE;
-
-
-        %% ========================================================
-        % BIOT STORAGE
-        % =========================================================
 
         M_global(e,e) = M_global(e,e) + M_biot_local{e};
 

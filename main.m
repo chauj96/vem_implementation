@@ -60,109 +60,88 @@ fprintf('\n[# ASSEMBLE GLOBAL MATRICES]\n');
 [K_global, B_global, D_global, A_global, E_global, M_global] = assembleBiotGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, D_biot_local, A_mfd_local, E_mfd_local, M_biot_local);
 
 
-%% STEP 5: TEMPORAL CONVERGENCE
-T = 1.0;
+%% STEP 5: SOLVE THE BIOT PROBLEM
+tau = 4/3;
 
-% reference time step
-dt_ref = 1/512;
+nSteps = 1600;
+dt = tau/nSteps;
+T = tau;
 
-% time steps for convergence test
-dt_list = [1/2, 1/4, 1/8, 1/16];
+fprintf('\n[# CONSOLIDATION SIMULATION]\n');
+fprintf('Final time: %.4f, dt: %.4f\n', T, dt);
 
-%% 5.1 REFERENCE SOLUTION
-fprintf('\n[# REFERENCE SOLUTION: dt = %.6f]\n', dt_ref);
+[sigma_h, u_h, w_h, p_h, p_history, t_history] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global);
 
-[sigma_ref, u_ref, w_ref, p_ref] = solveBiotTime(T, dt_ref, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global);
+fprintf('Pressure history size: %d x %d\n', size(p_history,1), size(p_history,2));
+fprintf('Stored time range: [%.4f, %.4f]\n', t_history(1), t_history(end));
+fprintf('Final pressure difference: %.3e\n', norm(p_history(:,end) - p_h));
 
+%% STEP 6: COMPARE WITH ANALYTICAL SOLUTION
 
-%% 5.2 TEMPORAL CONVERGENCE RUNS
-nDt = numel(dt_list);
+% Parameters
+H = lambda + 2*mu;
+varpi = 1;
+Kzz = 1;
 
-err_u = zeros(nDt,1);
-% err_div = zeros(nDt,1);
-err_proj = zeros(nDt,1);
-err_stress = zeros(nDt,1);
-err_p = zeros(nDt,1);
-err_w = zeros(nDt,1);
+p_init = alpha*varpi / (s0*H + alpha^2);
+cf = Kzz / (s0 + alpha^2/H);
 
-for k = 1:nDt
+% Normalized time
+tau = 1/cf;
+tbar_targets = [0.01, 0.05, 0.1, 0.2, 0.5, 1];
 
-    dt = dt_list(k);
+% Normalized depth
+z = arrayfun(@(c) c.center(3), cell_struct).';
 
-    fprintf('\n[# TEMPORAL RUN: dt = %.6f]\n', dt);
+[z_levels, ~, depthIdx] = unique(z);
+z_fine = linspace(0, 1, 300)';
 
-    [sigma_h, u_h, w_h, p_h] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global);
+% Plot
+colors = lines(numel(tbar_targets));
 
-    % compare with reference solution at T
-    err = computeBiotTemporalErrors(cell_struct, face_struct, face_global_geom, V3, B_local, D_local, P_local, A_mfd_local, sigma_h, u_h, w_h, p_h, sigma_ref, u_ref, w_ref, p_ref);
-
-    err_u(k) = err.displacement;
-    % err_div(k) = err.divergence;
-    err_proj(k) = err.projection;
-    err_stress(k) = err.stress;
-    err_p(k) = err.pressure;
-    err_w(k) = err.flux;
-
-end
-
-
-%% STEP 6: TEMPORAL CONVERGENCE RATES
-rate_u = log(err_u(1:end-1)./err_u(2:end)) / log(2);
-% rate_div = log(err_div(1:end-1)./err_div(2:end)) / log(2);
-rate_proj = log(err_proj(1:end-1)./err_proj(2:end)) / log(2);
-rate_stress = log(err_stress(1:end-1)./err_stress(2:end)) / log(2);
-rate_p = log(err_p(1:end-1)./err_p(2:end)) / log(2);
-rate_w = log(err_w(1:end-1)./err_w(2:end)) / log(2);
-
-fprintf('\n============================================================\n');
-fprintf('TEMPORAL CONVERGENCE (N = %d, T = %.2f)\n', N, T);
-fprintf('Reference dt = %.6f\n', dt_ref);
-fprintf('============================================================\n');
-
-fprintf('\nErrors:\n');
-fprintf('dt          Eu           Eproj       Esig        Ep          Ew\n');
-
-for k = 1:nDt
-    fprintf('%.6f   %.3e   %.3e   %.3e   %.3e   %.3e\n', dt_list(k), err_u(k), err_proj(k), err_stress(k), err_p(k), err_w(k));
-end
-
-fprintf('\nRates:\n');
-fprintf('dt ratio    Eu       Eproj    Esig     Ep       Ew\n');
-
-for k = 1:nDt-1
-    fprintf('%g -> %g   %.3f    %.3f    %.3f    %.3f    %.3f\n', dt_list(k), dt_list(k+1), rate_u(k), rate_proj(k), rate_stress(k), rate_p(k), rate_w(k));
-end
-
-fprintf('============================================================\n');
-
-
-%% STEP 7: PLOT
 figure;
-
-loglog(1./dt_list, err_u,      '-o', 'LineWidth', 1.5, 'MarkerSize', 7); 
 hold on;
-loglog(1./dt_list, err_proj,   '-s', 'LineWidth', 1.5, 'MarkerSize', 7);
-loglog(1./dt_list, err_stress, '-^', 'LineWidth', 1.5, 'MarkerSize', 7);
-loglog(1./dt_list, err_p,      '-d', 'LineWidth', 1.5, 'MarkerSize', 7);
-loglog(1./dt_list, err_w,      '-x', 'LineWidth', 1.5, 'MarkerSize', 8);
 
-% O(dt) reference line
-ref1 = err_p(1) * (dt_list ./ dt_list(1));
-loglog(1./dt_list, ref1, '--', 'LineWidth', 1.5);
+for k = 1:numel(tbar_targets)
+
+    tbar = tbar_targets(k);
+
+    % NUMERICAL SOLUTION
+    t_target = tbar * tau;
+    [~, timeIdx] = min(abs(t_history - t_target));
+
+    p_num = p_history(:,timeIdx) / p_init;
+    p_profile = accumarray(depthIdx, p_num, [], @mean);
+
+    % ANALYTICAL SOLUTION
+    p_exact = zeros(size(z_fine));
+
+    for n = 0:100
+        kn = (2*n+1)*pi/2;
+        p_exact = p_exact + (4/((2*n+1)*pi)) * sin(kn*z_fine) * exp(-kn^2*tbar);
+    end
+
+    plot(p_exact, z_fine, '-', 'Color', colors(k,:), 'LineWidth', 1.8, 'DisplayName', sprintf('Analytical, tbar = %.3g', tbar));
+    plot(p_profile, z_levels, 'o', 'Color', colors(k,:), 'MarkerSize', 6, 'LineWidth', 1.2, 'DisplayName', sprintf('Mixed VEM-MFD, tbar = %.3g', tbar));
+
+end
+
+% Figure settings
+set(gca, 'YDir', 'reverse');
+
+xlabel('Normalized pressure, p / p_{init}');
+ylabel('Normalized depth, z / h');
+title('Consolidation of a Soil Layer');
+
+xlim([0 1.05]);
+ylim([0 1]);
 
 grid on;
-box on;
-
-xlabel('1/\Delta t');
-ylabel('Relative temporal error');
-title('Temporal Convergence: Mixed VEM - Mixed MFD Biot');
-
-legend('$E_u$', '$E_{\sigma,\Pi}$', '$E_{\sigma}$', '$E_p$', '$E_w$', '$O(\Delta t)$', 'Interpreter','latex', 'Location','best');
-set(gca,'FontSize',12);
+legend('Location', 'eastoutside');
 
 
 %% LOCAL FUNCTION: BIOT TIME STEPPING
-function [sigma_h, u_h, w_h, p_h] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global)
+function [sigma_h, u_h, w_h, p_h, p_history, t_history] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global)
 
     nSteps = round(T/dt);
 
@@ -171,19 +150,101 @@ function [sigma_h, u_h, w_h, p_h] = solveBiotTime(T, dt, cell_struct, face_struc
     nFluxDofs = size(A_global,1);
     nPressureDofs = size(M_global,1);
 
-    % backward Euler system matrix
-    LHS = [K_global, B_global', sparse(nStressDofs,nFluxDofs), D_global';
-           -B_global, sparse(nDispDofs,nDispDofs), sparse(nDispDofs,nFluxDofs), sparse(nDispDofs,nPressureDofs);
-           sparse(nFluxDofs,nStressDofs), sparse(nFluxDofs,nDispDofs), A_global, E_global';
-           D_global, sparse(nPressureDofs,nDispDofs), -dt*E_global, M_global ];
+    % global DOF offsets
+    fluxOffset = nStressDofs + nDispDofs;
 
-    % exact discrete initial condition at t = 0
+    % backward Euler system matrix
+    LHS = [ ...
+        K_global, B_global', sparse(nStressDofs,nFluxDofs), D_global';
+        -B_global, sparse(nDispDofs,nDispDofs), sparse(nDispDofs,nFluxDofs), sparse(nDispDofs,nPressureDofs);
+        sparse(nFluxDofs,nStressDofs), sparse(nFluxDofs,nDispDofs), A_global, E_global';
+        D_global, sparse(nPressureDofs,nDispDofs), -dt*E_global, M_global ];
+
+    nTotalDofs = size(LHS,1);
+
+    %% BOUNDARY CONDITIONS
+
+    fixedDofs = [];
+    fixedValues = [];
+
+    varpi = 1;
+    ez = [0; 0; 1];
+
+    for f = 1:numel(face_struct)
+
+        face = face_struct(f);
+        geom = face_global_geom(f);
+
+        stressIds = 6*(f-1) + (1:6);
+        fluxId = fluxOffset + f;
+
+        if face.is_top
+
+            % prescribed total traction: sigma*n_out = varpi*ez
+            e = face.cells(1);
+
+            outwardDirection = face.center(:) - cell_struct(e).center(:);
+            normalSign = sign(dot(geom.n, outwardDirection));
+
+            tractionGlobal = normalSign * varpi * ez;
+
+            Af = face.area;
+
+            tractionCoeffs = zeros(6,1);
+
+            tractionCoeffs(1) = Af * dot(geom.t1,tractionGlobal);
+            tractionCoeffs(2) = Af * dot(geom.t2, tractionGlobal);
+            tractionCoeffs(3) = Af * dot(geom.n, tractionGlobal);
+
+            % modes 4, 5, 6 vanish for constant traction
+
+            fixedDofs = [fixedDofs; stressIds(:)];
+            fixedValues = [fixedValues; tractionCoeffs];
+
+        elseif face.is_bottom || face.is_side
+
+            % zero tangential traction:
+            % modes 1, 2, 4
+            tangentialIds = stressIds([1,2,4]);
+
+            fixedDofs = [fixedDofs; tangentialIds(:)];
+            fixedValues = [fixedValues; zeros(3,1)];
+
+            % impermeable boundary: w*n = 0
+            fixedDofs = [fixedDofs; fluxId];
+            fixedValues = [fixedValues; 0];
+
+        end
+
+    end
+
+    %% REDUCED SYSTEM
+
+    allDofs = (1:nTotalDofs).';
+
+    freeDofs = setdiff(allDofs, fixedDofs);
+
+    LHS_free = LHS(freeDofs, freeDofs);
+    LHS_fixed = LHS(freeDofs, fixedDofs);
+
+    % factorize once because LHS is constant in time
+    solver = decomposition(LHS_free, 'lu');
+
+    %% INITIAL CONDITION
+
     [sigma_old, p_old] = initializeBiot(cell_struct, face_struct, face_global_geom);
 
-    % time stepping
+    p_history = zeros(nPressureDofs, nSteps+1);
+    t_history = (0:nSteps)' * dt;
+    
+    % initial pressure at t = 0
+    p_history(:,1) = p_old;
+
+    %% TIME STEPPING
+
     for n = 1:nSteps
 
-        t = n * dt;
+        t = n*dt;
 
         [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, face_global_geom, t);
 
@@ -191,11 +252,18 @@ function [sigma_h, u_h, w_h, p_h] = solveBiotTime(T, dt, cell_struct, face_struc
             f_sigma;
             f_u;
             f_w;
-            D_global*sigma_old ...
-            + M_global*p_old ...
-            + dt*f_p ];
+            D_global*sigma_old + M_global*p_old + dt*f_p ];
 
-        solution = LHS \ RHS;
+        % account for prescribed boundary values
+        RHS_free = RHS(freeDofs) - LHS_fixed*fixedValues;
+
+        % solve reduced system
+        solution = zeros(nTotalDofs,1);
+
+        solution(fixedDofs) = fixedValues;
+        solution(freeDofs) = solver \ RHS_free;
+
+        %% EXTRACT SOLUTION
 
         i1 = nStressDofs;
         i2 = i1 + nDispDofs;
@@ -206,176 +274,11 @@ function [sigma_h, u_h, w_h, p_h] = solveBiotTime(T, dt, cell_struct, face_struc
         w_h = solution(i2+1:i3);
         p_h = solution(i3+1:end);
 
+        p_history(:,n+1) = p_h;
+        
         sigma_old = sigma_h;
         p_old = p_h;
 
     end
 
 end
-
-function err = computeBiotTemporalErrors(cell_struct, face_struct, face_global_geom, V3, B_local, D_local, P_local, A_mfd_local, sigma_h, u_h, w_h, p_h, sigma_ref, u_ref, w_ref, p_ref)
-
-    nCells = numel(cell_struct);
-    nFaces = numel(face_struct);
-
-    eU2 = 0;   nU2 = 0;
-    eDiv2 = 0; nDiv2 = 0;
-    ePi2 = 0;  nPi2 = 0;
-    eP2 = 0;   nP2 = 0;
-    eW2 = 0;   nW2 = 0;
-
-    s2 = 1/sqrt(2);
-
-    %% cell-based errors
-    for e = 1:nCells
-
-        qp = cell_struct(e).quad_points;
-        qw = cell_struct(e).quad_weights(:).';
-
-        xE = cell_struct(e).center(:);
-        r = qp - xE;
-
-        % local stress DOFs
-        fl = cell_struct(e).faces(:).';
-        nf = numel(fl);
-
-        sl_h = zeros(6*nf,1);
-        sl_ref = zeros(6*nf,1);
-
-        for lf = 1:nf
-
-            f = fl(lf);
-
-            Tf = computeFaceTransformation(f, B_local{e}.geom(lf), face_global_geom(f), face_struct);
-
-            ids = 6*(f-1) + (1:6);
-            lid = 6*(lf-1) + (1:6);
-
-            sl_h(lid) = diag(Tf) .* sigma_h(ids);
-            sl_ref(lid) = diag(Tf) .* sigma_ref(ids);
-
-        end
-
-        %% displacement
-        idsU = 6 * (e-1) + (1:6);
-
-        uh_coeff = u_h(idsU);
-        uref_coeff = u_ref(idsU);
-
-        uh = uh_coeff(1:3) + cross(repmat(uh_coeff(4:6),1,size(r,2)), r, 1);
-
-        uref = uref_coeff(1:3) + cross(repmat(uref_coeff(4:6),1,size(r,2)), r, 1);
-
-        eU2 = eU2 + sum(sum((uh-uref).^2,1).*qw);
-        nU2 = nU2 + sum(sum(uref.^2,1).*qw);
-
-
-        %% stress divergence
-        dh = D_local{e} * sl_h;
-        dref = D_local{e} * sl_ref;
-
-        divh = dh(1:3) + cross(repmat(dh(4:6),1,size(r,2)), r, 1);
-
-        divref = dref(1:3) + cross(repmat(dref(4:6),1,size(r,2)), r, 1);
-
-        eDiv2 = eDiv2 + sum(sum((divh-divref).^2,1).*qw);
-        nDiv2 = nDiv2 + sum(sum(divref.^2,1).*qw);
-
-
-        %% projected stress
-        ch = P_local{e} * sl_h;
-        cref = P_local{e} * sl_ref;
-
-        Sh = [ ...
-            ch(1),    s2*ch(6), s2*ch(5);
-            s2*ch(6), ch(2),    s2*ch(4);
-            s2*ch(5), s2*ch(4), ch(3)];
-
-        Sref = [ ...
-            cref(1),    s2*cref(6), s2*cref(5);
-            s2*cref(6), cref(2),    s2*cref(4);
-            s2*cref(5), s2*cref(4), cref(3)];
-
-        volume = sum(qw);
-
-        ePi2 = ePi2 + volume * sum((Sh-Sref).^2,'all');
-        nPi2 = nPi2 + volume * sum(Sref.^2,'all');
-
-
-        %% pressure
-        dp = p_h(e) - p_ref(e);
-
-        eP2 = eP2 + volume * dp^2;
-        nP2 = nP2 + volume * p_ref(e)^2;
-
-
-        %% flux
-        face_ids = cell_struct(e).faces(:);
-        orient = cell_struct(e).faces_orientation(:);
-
-        wh   = orient .* w_h(face_ids);
-        wref = orient .* w_ref(face_ids);
-
-        dw = wh - wref;
-
-        AE = A_mfd_local{e};
-
-        eW2 = eW2 + dw' * AE * dw;
-        nW2 = nW2 + wref' * AE * wref;
-
-    end
-
-
-    %% traction stress error
-    eS2 = 0;
-    nS2 = 0;
-
-    for f = 1:nFaces
-
-        qp = face_struct(f).quad_points;
-        qw = face_struct(f).quad_weights(:).';
-
-        xf = face_struct(f).center(:);
-        Af = face_struct(f).area;
-
-        g = face_global_geom(f);
-
-        % face diameter
-        P = V3(face_struct(f).verts(:),:);
-        d2 = sum(P.^2,2) + sum(P.^2,2).' - 2*(P*P.');
-        hf = sqrt(max(d2,[],'all'));
-
-        e1 = face_struct(f).cells(1);
-        kappa = 0.5 * trace(cell_struct(e1).Cinv);
-
-        ids = 6 * (f-1) + (1:6);
-
-        ch = sigma_h(ids);
-        cref = sigma_ref(ids);
-
-        for q = 1:numel(qw)
-
-            Phi = evaluateFaceBasis(qp(:,q), xf, g.Qf, g.t1, g.t2, g.n, Af, g.m20, g.m02);
-
-            th = Phi * ch;
-            tref = Phi * cref;
-
-            eS2 = eS2 + hf*kappa*qw(q)*sum((th-tref).^2);
-            nS2 = nS2 + hf*kappa*qw(q)*sum(tref.^2);
-
-        end
-
-    end
-
-
-    %% relative errors
-    err.displacement = sqrt(eU2/nU2);
-    % err.divergence = sqrt(eDiv2/nDiv2);
-    err.projection = sqrt(ePi2/nPi2);
-    err.stress = sqrt(eS2/nS2);
-    err.pressure = sqrt(eP2/nP2);
-    err.flux = sqrt(eW2/nW2);
-
-end
-
-
