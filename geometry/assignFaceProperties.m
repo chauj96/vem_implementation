@@ -1,75 +1,48 @@
 function face_struct = assignFaceProperties(face_struct)
-% identify boundary faces and tag boundary conditions
+% identify exterior boundary faces and assign boundary condition tags.
+% we have linear elasticity with an internal contact interface.
 %
-% Consolidation of a soil layer
+% patch test:
+%   prescribed displacement on the entire exterior boundary.
 %
-% z = 0 : top
-%   Mechanics : prescribed traction
-%   Flow      : prescribed pressure (p = 0)
+%   Gamma_D = boundary(Omega)
+%   Gamma_N = empty
 %
-% z = 1 : bottom
-%   Mechanics : prescribed normal displacement (u_z = 0)
-%   Flow      : prescribed normal flux (w.n = 0)
-%
-% Side boundaries
-%   Mechanics : prescribed normal displacement (u.n = 0)
-%   Flow      : prescribed normal flux (w.n = 0)
+% internal fracture faces are not exterior boundary faces.
+% they are handled separately by the contact formulation.
 
     nFaces = numel(face_struct);
 
-    h = 1.0;
-    tol = 1e-10;
-
     for f = 1:nFaces
 
-        % boundary flag
+        % initialize boundary flags
         face_struct(f).is_boundary = false;
 
-        % boundary location
-        face_struct(f).is_top = false;
-        face_struct(f).is_bottom = false;
-        face_struct(f).is_side = false;
-
-        % mechanics
+        % mechanical boundary conditions
         face_struct(f).is_displacement_bc = false;
         face_struct(f).is_traction_bc = false;
 
-        % flow
-        face_struct(f).is_pressure_bc = false;
-        face_struct(f).is_flux_bc = false;
-
-        % exterior face
+        % exterior boundary faces have one adjacent cell
         if isscalar(face_struct(f).cells)
 
             face_struct(f).is_boundary = true;
 
-            zf = face_struct(f).center(3);
+            % prescribed displacement on all exterior faces
+            face_struct(f).is_displacement_bc = true;
 
-            if abs(zf) < tol
-
-                % Top boundary (z = 0)
-                face_struct(f).is_top = true;
-
-                face_struct(f).is_traction_bc = true;
-                face_struct(f).is_pressure_bc = true;
-
-            elseif abs(zf - h) < tol
-
-                % Bottom boundary (z = h)
-                face_struct(f).is_bottom = true;
-
-                face_struct(f).is_displacement_bc = true;
-                face_struct(f).is_flux_bc = true;
-
-            else
-
-                % Side boundaries
-                face_struct(f).is_side = true;
-
-                face_struct(f).is_displacement_bc = true;
-                face_struct(f).is_flux_bc = true;
-
-            end
         end
+
     end
+
+    fprintf('\n[# BOUNDARY FACE PROPERTIES]\n');
+
+    nBoundary = sum([face_struct.is_boundary]);
+    nDirichlet = sum([face_struct.is_displacement_bc]);
+    nNeumann = sum([face_struct.is_traction_bc]);
+
+    fprintf('  Exterior boundary faces: %d\n', nBoundary);
+    fprintf('  Displacement BC faces:   %d\n', nDirichlet);
+    fprintf('  Traction BC faces:       %d\n', nNeumann);
+
 end
+

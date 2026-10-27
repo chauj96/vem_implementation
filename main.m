@@ -2,13 +2,15 @@
 addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('FACTORIZE'), 'meshes');
 % setupMRSTAuto();
 
-%% STEP 1: LOAD MESH AND CHOOSE SYSTEM (mixed or hybrid), SOLVER TYPE (direct or iterative)
+%% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: unit cube model]\n');
 
 meshName = 'unit_cube';
 
-N = 8;
-G = cartGrid([N N N],[1 1 1]);
+Nx = 8;
+Ny = 8;
+Nz = 4;
+G = cartGrid([Nx Ny Nz],[1 1 1]);
 G = computeGeometry(G);
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
@@ -18,15 +20,28 @@ lambda = 1;
 mu = 1;
 alpha = 1;
 s0 = 1;
+xFrac = 0.5;
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
 face_struct = assignFaceProperties(face_struct); 
 
+% expand stress DOFs over fracture (sigma_h)
+[cell_struct, face_struct, fracture] = assignFractureProperties(cell_struct, face_struct, xFrac);
+
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
-nStressDofs = 6*numel(face_struct);
+[cell_struct, face_struct, nStressDofs] = assignFractureStressDofs(cell_struct, face_struct, fracture);
+
+% bulk displacement DOFs
 nDispDofs = 6*numel(cell_struct);
+
+fracture = assignInterfaceDofs(fracture);
+
+nContactTractionDofs = fracture.nTractionDofs;
+nInterfaceDispDofs = fracture.nDispDofs;
+
+nTotalDofs = nStressDofs + nDispDofs + nContactTractionDofs + nInterfaceDispDofs;
 
 %% STEP 3: (LOCAL LEVEL) COMPUTE VEM MATRICES
 fprintf('\n[# COMPUTE LOCAL OPERATORS]\n');
@@ -43,242 +58,239 @@ D_local = computeDE(cell_struct, A_local, B_local);
 Bproj = computeBproj(cell_struct, face_struct, D_local, B_local);
 P_local = computeProjectionMatrix(cell_struct, Bproj);
 
-% BIOT STRESS-PRESSURE COUPLING
-D_biot_local = computeBiotCoupling(cell_struct, P_local);
-
 K_cons = computeConsistency(cell_struct, P_local);
 K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 
-% FLOW PART (MIXED MFD)
-A_mfd_local = computeMFDInnerProduct(cell_struct, face_struct);
-E_mfd_local = computeMFDCoupling(cell_struct);
-M_biot_local = computeBiotStorage(cell_struct);
+T = computeInterfaceT(fracture, cell_struct, face_struct, B_local, face_global_geom, nStressDofs);
+
+% contact stiffness parameters
+cn = 1;
+cT = 1;
+
+Ac = computeInterfaceAc(fracture, face_struct, face_global_geom, cn, cT);
+
+J = computeInterfaceJ(fracture, cell_struct, face_struct, B_local, face_global_geom);
 
 %% STEP 4: GLOBAL ASSEMBLY
 fprintf('\n[# ASSEMBLE GLOBAL MATRICES]\n');
+[A_global, B_global] = assembleContactBulkMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, nStressDofs);
 
-[K_global, B_global, D_global, A_global, E_global, M_global] = assembleBiotGlobalMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, D_biot_local, A_mfd_local, E_mfd_local, M_biot_local);
+K_global = assembleContactGlobalSystem(A_global, B_global, Ac, T, J);
 
+RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs, nDispDofs, nContactTractionDofs, nInterfaceDispDofs, xFrac);
 
-%% STEP 5: SOLVE THE BIOT PROBLEM
-tau = 4/3;
+%% STEP 5: SOLVE GLOBAL CONTACT SYSTEM
+fprintf('\n[# SOLVE CONTACT SYSTEM]\n');
 
-nSteps = 1600;
-dt = tau/nSteps;
-T = tau;
+solution = K_global \ RHS;
 
-fprintf('\n[# CONSOLIDATION SIMULATION]\n');
-fprintf('Final time: %.4f, dt: %.4f\n', T, dt);
+% extract unknowns
+i1 = nStressDofs;
+i2 = i1 + nDispDofs;
+i3 = i2 + nContactTractionDofs;
 
-[sigma_h, u_h, w_h, p_h, p_history, t_history] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global);
+sigma_h = solution(1:i1);
+u_h = solution(i1+1:i2);
+tc_h = solution(i2+1:i3);
+uc_h = solution(i3+1:end);
 
-fprintf('Pressure history size: %d x %d\n', size(p_history,1), size(p_history,2));
-fprintf('Stored time range: [%.4f, %.4f]\n', t_history(1), t_history(end));
-fprintf('Final pressure difference: %.3e\n', norm(p_history(:,end) - p_h));
-
-%% STEP 6: COMPARE WITH ANALYTICAL SOLUTION
-
-% Parameters
-H = lambda + 2*mu;
-varpi = 1;
-Kzz = 1;
-
-p_init = alpha*varpi / (s0*H + alpha^2);
-cf = Kzz / (s0 + alpha^2/H);
-
-% Normalized time
-tau = 1/cf;
-tbar_targets = [0.01, 0.05, 0.1, 0.2, 0.5, 1];
-
-% Normalized depth
-z = arrayfun(@(c) c.center(3), cell_struct).';
-
-[z_levels, ~, depthIdx] = unique(z);
-z_fine = linspace(0, 1, 300)';
-
-% Plot
-colors = lines(numel(tbar_targets));
-
-figure;
-hold on;
-
-for k = 1:numel(tbar_targets)
-
-    tbar = tbar_targets(k);
-
-    % NUMERICAL SOLUTION
-    t_target = tbar * tau;
-    [~, timeIdx] = min(abs(t_history - t_target));
-
-    p_num = p_history(:,timeIdx) / p_init;
-    p_profile = accumarray(depthIdx, p_num, [], @mean);
-
-    % ANALYTICAL SOLUTION
-    p_exact = zeros(size(z_fine));
-
-    for n = 0:100
-        kn = (2*n+1)*pi/2;
-        p_exact = p_exact + (4/((2*n+1)*pi)) * sin(kn*z_fine) * exp(-kn^2*tbar);
-    end
-
-    plot(p_exact, z_fine, '-', 'Color', colors(k,:), 'LineWidth', 1.8, 'DisplayName', sprintf('Analytical, tbar = %.3g', tbar));
-    plot(p_profile, z_levels, 'o', 'Color', colors(k,:), 'MarkerSize', 6, 'LineWidth', 1.2, 'DisplayName', sprintf('Mixed VEM-MFD, tbar = %.3g', tbar));
-
-end
-
-% Figure settings
-set(gca, 'YDir', 'reverse');
-
-xlabel('Normalized pressure, p / p_{init}');
-ylabel('Normalized depth, z / h');
-title('Consolidation of a Soil Layer');
-
-xlim([0 1.05]);
-ylim([0 1]);
-
-grid on;
-legend('Location', 'eastoutside');
+results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac);
 
 
-%% LOCAL FUNCTION: BIOT TIME STEPPING
-function [sigma_h, u_h, w_h, p_h, p_history, t_history] = solveBiotTime(T, dt, cell_struct, face_struct, face_global_geom, K_global, B_global, D_global, A_global, E_global, M_global)
+function results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac)
+    fprintf('\n========================================\n');
+    fprintf('       CONTACT PATCH TEST CHECK\n');
+    fprintf('========================================\n');
 
-    nSteps = round(T/dt);
+    % sigmaExact = diag([1,0,0]);
+    sigmaExact = diag([1, 1/3, 1/3]);
+    tExact = [1;0;0];
 
-    nStressDofs = size(K_global,1);
-    nDispDofs = size(B_global,1);
-    nFluxDofs = size(A_global,1);
-    nPressureDofs = size(M_global,1);
+    %% 1. BULK STRESS
+    sigma_exact_dofs = zeros(size(sigma_h));
+    visited = false(size(sigma_h));
 
-    % global DOF offsets
-    fluxOffset = nStressDofs + nDispDofs;
+    for e = 1:numel(cell_struct)
 
-    % backward Euler system matrix
-    LHS = [ ...
-        K_global, B_global', sparse(nStressDofs,nFluxDofs), D_global';
-        -B_global, sparse(nDispDofs,nDispDofs), sparse(nDispDofs,nFluxDofs), sparse(nDispDofs,nPressureDofs);
-        sparse(nFluxDofs,nStressDofs), sparse(nFluxDofs,nDispDofs), A_global, E_global';
-        D_global, sparse(nPressureDofs,nDispDofs), -dt*E_global, M_global ];
+        faces = cell_struct(e).faces;
 
-    nTotalDofs = size(LHS,1);
+        for lf = 1:numel(faces)
 
-    %% BOUNDARY CONDITIONS
+            f = faces(lf);
+            geom = face_global_geom(f);
+            Af = face_struct(f).area;
 
-    fixedDofs = [];
-    fixedValues = [];
+            traction = sigmaExact * geom.n;
 
-    varpi = 1;
-    ez = [0; 0; 1];
+            coeff = zeros(6,1);
+            coeff(1:3) = Af * [ ...
+                dot(traction,geom.t1);
+                dot(traction,geom.t2);
+                dot(traction,geom.n)];
 
-    for f = 1:numel(face_struct)
+            cols = 6*(lf-1)+(1:6);
+            dofs = cell_struct(e).stress_dofs(cols);
 
-        face = face_struct(f);
-        geom = face_global_geom(f);
+            if any(visited(dofs))
+                assert(norm(sigma_exact_dofs(dofs)-coeff) < 1e-10, 'Inconsistent shared stress DOF values.');
+            end
 
-        stressIds = 6*(f-1) + (1:6);
-        fluxId = fluxOffset + f;
-
-        if face.is_top
-
-            % prescribed total traction: sigma*n_out = varpi*ez
-            e = face.cells(1);
-
-            outwardDirection = face.center(:) - cell_struct(e).center(:);
-            normalSign = sign(dot(geom.n, outwardDirection));
-
-            tractionGlobal = normalSign * varpi * ez;
-
-            Af = face.area;
-
-            tractionCoeffs = zeros(6,1);
-
-            tractionCoeffs(1) = Af * dot(geom.t1,tractionGlobal);
-            tractionCoeffs(2) = Af * dot(geom.t2, tractionGlobal);
-            tractionCoeffs(3) = Af * dot(geom.n, tractionGlobal);
-
-            % modes 4, 5, 6 vanish for constant traction
-
-            fixedDofs = [fixedDofs; stressIds(:)];
-            fixedValues = [fixedValues; tractionCoeffs];
-
-        elseif face.is_bottom || face.is_side
-
-            % zero tangential traction:
-            % modes 1, 2, 4
-            tangentialIds = stressIds([1,2,4]);
-
-            fixedDofs = [fixedDofs; tangentialIds(:)];
-            fixedValues = [fixedValues; zeros(3,1)];
-
-            % impermeable boundary: w*n = 0
-            fixedDofs = [fixedDofs; fluxId];
-            fixedValues = [fixedValues; 0];
+            sigma_exact_dofs(dofs) = coeff;
+            visited(dofs) = true;
 
         end
+    end
+
+    assert(all(visited), 'Some stress DOFs were not visited.');
+
+    results.stress_error = norm(sigma_h-sigma_exact_dofs) / max(norm(sigma_exact_dofs),eps);
+
+    fprintf('\n[1] BULK STRESS\n');
+    fprintf('  Relative DOF error: %.6e\n', results.stress_error);
+
+
+    %% 2. BULK DISPLACEMENT
+    % displacement evaluated at the cell barycenter.
+
+    u_exact_centers = zeros(3*numel(cell_struct),1);
+    u_num_centers = zeros(3*numel(cell_struct),1);
+
+    for e = 1:numel(cell_struct)
+
+        xE = cell_struct(e).center(:);
+        isPlus = xE(1) > xFrac;
+        ue = [xE(1)/3 + double(isPlus); 0; 0];
+ 
+        % 
+        % ue = [0.4*xE(1);
+        %      -0.1*xE(2);
+        %      -0.1*xE(3)];
+
+        % if isPlus
+        %     ue(1) = ue(1)+1;
+        % end
+
+        u_exact_centers(3*(e-1)+(1:3)) = ue;
+        u_num_centers(3*(e-1)+(1:3)) = u_h(6*(e-1)+(1:3));
 
     end
 
-    %% REDUCED SYSTEM
+    results.displacement_center_error = norm(u_num_centers-u_exact_centers) / max(norm(u_exact_centers),eps);
 
-    allDofs = (1:nTotalDofs).';
+    fprintf('\n[2] BULK DISPLACEMENT\n');
+    fprintf('  Relative cell-center error: %.6e\n', results.displacement_center_error);
 
-    freeDofs = setdiff(allDofs, fixedDofs);
 
-    LHS_free = LHS(freeDofs, freeDofs);
-    LHS_fixed = LHS(freeDofs, fixedDofs);
+    %% 3. CONTACT TRACTION
+    tc_exact_dofs = zeros(size(tc_h));
 
-    % factorize once because LHS is constant in time
-    solver = decomposition(LHS_free, 'lu');
+    for k = 1:fracture.nFaces
 
-    %% INITIAL CONDITION
+        f = fracture.faces(k);
+        geom = face_global_geom(f);
+        Af = face_struct(f).area;
 
-    [sigma_old, p_old] = initializeBiot(cell_struct, face_struct, face_global_geom);
+        coeff = zeros(6,1);
+        coeff(1:3) = Af * [ ...
+            dot(tExact,geom.t1);
+            dot(tExact,geom.t2);
+            dot(tExact,geom.n)];
 
-    p_history = zeros(nPressureDofs, nSteps+1);
-    t_history = (0:nSteps)' * dt;
-    
-    % initial pressure at t = 0
-    p_history(:,1) = p_old;
-
-    %% TIME STEPPING
-
-    for n = 1:nSteps
-
-        t = n*dt;
-
-        [f_sigma, f_u, f_w, f_p] = assembleBiotRHS(cell_struct, face_struct, face_global_geom, t);
-
-        RHS = [ ...
-            f_sigma;
-            f_u;
-            f_w;
-            D_global*sigma_old + M_global*p_old + dt*f_p ];
-
-        % account for prescribed boundary values
-        RHS_free = RHS(freeDofs) - LHS_fixed*fixedValues;
-
-        % solve reduced system
-        solution = zeros(nTotalDofs,1);
-
-        solution(fixedDofs) = fixedValues;
-        solution(freeDofs) = solver \ RHS_free;
-
-        %% EXTRACT SOLUTION
-
-        i1 = nStressDofs;
-        i2 = i1 + nDispDofs;
-        i3 = i2 + nFluxDofs;
-
-        sigma_h = solution(1:i1);
-        u_h = solution(i1+1:i2);
-        w_h = solution(i2+1:i3);
-        p_h = solution(i3+1:end);
-
-        p_history(:,n+1) = p_h;
-        
-        sigma_old = sigma_h;
-        p_old = p_h;
+        dofs = fracture.traction_dofs(k,:);
+        tc_exact_dofs(dofs) = coeff;
 
     end
+
+    results.contact_traction_error = norm(tc_h-tc_exact_dofs) / max(norm(tc_exact_dofs),eps);
+
+    fprintf('\n[3] CONTACT TRACTION\n');
+    fprintf('  Relative DOF error: %.6e\n', results.contact_traction_error);
+
+
+    %% 4. INTERFACE DISPLACEMENT
+    % reconstruct displacement on each side using the corresponding local face basis.
+
+    errMinus2 = 0;
+    errPlus2 = 0;
+    errJump2 = 0;
+
+    normMinus2 = 0;
+    normPlus2 = 0;
+    normJump2 = 0;
+
+    for k = 1:fracture.nFaces
+
+        f = fracture.faces(k);
+        face = face_struct(f);
+
+        em = fracture.minus_cells(k);
+        ep = fracture.plus_cells(k);
+
+        lfm = find(cell_struct(em).faces == f);
+        lfp = find(cell_struct(ep).faces == f);
+
+        gm = B_local{em}.geom(lfm);
+        gp = B_local{ep}.geom(lfp);
+
+        dm = fracture.disp_minus_dofs(k,:);
+        dp = fracture.disp_plus_dofs(k,:);
+
+        cm = uc_h(dm);
+        cp = uc_h(dp);
+
+        xf = face.center(:);
+        Af = face.area;
+
+        qp = face.quad_points;
+        w = face.quad_weights;
+
+        for q = 1:numel(w)
+
+            xq = qp(:,q);
+
+            PhiMinus = evaluateFaceBasis(xq,xf,gm.Qf,gm.t1,gm.t2,gm.n, Af,gm.m20,gm.m02);
+
+            PhiPlus = evaluateFaceBasis(xq,xf,gp.Qf,gp.t1,gp.t2,gp.n, Af,gp.m20,gp.m02);
+
+            um_num = PhiMinus*cm;
+            up_num = PhiPlus*cp;
+
+            % um_exact = [0.4*xq(1);
+            %            -0.1*xq(2);
+            %            -0.1*xq(3)];
+            % 
+            % up_exact = um_exact+[1;0;0];
+
+            um_exact = [xq(1)/3; 0; 0];
+            up_exact = um_exact + [1; 0; 0];
+
+            jump_num = up_num-um_num;
+            jump_exact = up_exact-um_exact;
+
+            errMinus2 = errMinus2 + w(q)*sum((um_num-um_exact).^2);
+
+            errPlus2 = errPlus2 + w(q)*sum((up_num-up_exact).^2);
+
+            errJump2 = errJump2 + w(q)*sum((jump_num-jump_exact).^2);
+
+            normMinus2 = normMinus2 + w(q)*sum(um_exact.^2);
+
+            normPlus2 = normPlus2 + w(q)*sum(up_exact.^2);
+
+            normJump2 = normJump2 + w(q)*sum(jump_exact.^2);
+
+        end
+    end
+
+    results.interface_minus_error = sqrt(errMinus2/max(normMinus2,eps));
+
+    results.interface_plus_error = sqrt(errPlus2/max(normPlus2,eps));
+
+    results.jump_error = sqrt(errJump2/max(normJump2,eps));
+
+    fprintf('\n[4] INTERFACE DISPLACEMENT\n');
+    fprintf('  Minus-side relative error: %.6e\n', results.interface_minus_error);
+    fprintf('  Plus-side relative error:  %.6e\n', results.interface_plus_error);
+    fprintf('  Jump relative error:       %.6e\n', results.jump_error);
 
 end
