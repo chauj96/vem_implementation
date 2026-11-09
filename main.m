@@ -3,30 +3,59 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 % setupMRSTAuto();
 
 %% STEP 1: LOAD MESH
-fprintf('\n[# MESH LOADED: unit cube model]\n');
+fprintf('\n[# MESH LOADED: INCLINED FRACTURE MODEL]\n');
 
-meshName = 'unit_cube';
+Lx = 20;
+Ly = 20;
+Lz = 10;
 
-Nx = 8;
-Ny = 8;
-Nz = 4;
-G = cartGrid([Nx Ny Nz],[1 1 1]);
-G = computeGeometry(G);
+h = 0.5;
+Nz = 1;
+
+psi = 20;
+b = 6;
+
+[G, fractureInfo] = inclinedFracture(Lx, Ly, Lz, h, Nz, psi, b);
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+
+figure('Color', 'w');
+
+% plot solid mesh with visible cell edges
+plotGrid(G, 'FaceColor', [0.65, 0.8, 0.95], 'FaceAlpha', 0.35, 'EdgeColor', [0.25, 0.25, 0.25], 'EdgeAlpha', 0.5);
+hold on;
+
+% highlight fracture faces
+plotFaces(G, fractureInfo.faces, 'FaceColor', [1, 0.2, 0.2], 'FaceAlpha', 0.9, 'EdgeColor', 'k');
+
+axis equal tight;
+view(3);
+
+xlabel('x');
+ylabel('y');
+zlabel('z');
+title('3D Inclined Fracture Mesh');
+
+grid on;
+box on;
 
 %% STEP 2: SET UP GEOMETRY
 % Lamé parameters (currently assuming homogeneous isotropic elasticity)
-lambda = 1;
-mu = 1;
-alpha = 1;
-s0 = 1;
-xFrac = 0.5;
+E = 25000;       % MPa
+nu = 0.25;
+
+mu = E/(2*(1+nu));
+lambda = E*nu/((1+nu)*(1-2*nu));
+
+alpha = 0;       % pure elasticity
+s0 = 0;          % no flow/storage in this test
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
-face_struct = assignFaceProperties(face_struct); 
+face_struct = assignFaceProperties(face_struct, Lx, Ly, Lz); 
 
-% expand stress DOFs over fracture (sigma_h)
-[cell_struct, face_struct, fracture] = assignFractureProperties(cell_struct, face_struct, xFrac);
+% expand stress DOFs over fracture
+sigma0 = 100;
+face_struct = assignContactBoundaryConditions(face_struct, sigma0);
+[cell_struct, face_struct, fracture] = assignFractureProperties(cell_struct, face_struct, fractureInfo);
 
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
@@ -64,8 +93,8 @@ K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
 T = computeInterfaceT(fracture, cell_struct, face_struct, B_local, face_global_geom, nStressDofs);
 
 % contact stiffness parameters
-cn = 1;
-cT = 1;
+cn = 1e6;     % large normal stiffness
+cT = 1e-3;    % small tangential stiffness
 
 Ac = computeInterfaceAc(fracture, face_struct, face_global_geom, cn, cT);
 
@@ -77,14 +106,18 @@ fprintf('\n[# ASSEMBLE GLOBAL MATRICES]\n');
 
 K_global = assembleContactGlobalSystem(A_global, B_global, Ac, T, J);
 
-RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs, nDispDofs, nContactTractionDofs, nInterfaceDispDofs, xFrac);
+RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs, nDispDofs, nContactTractionDofs, nInterfaceDispDofs);
+[K_bc, RHS_bc, bc] = applyContactBoundaryConstraints(K_global, RHS, cell_struct, face_struct, face_global_geom);
 
 %% STEP 5: SOLVE GLOBAL CONTACT SYSTEM
 fprintf('\n[# SOLVE CONTACT SYSTEM]\n');
 
-solution = K_global \ RHS;
+y = K_bc \ RHS_bc;
+solution = bc.xp + bc.Z*y;
 
-% extract unknowns
+%% STEP 6: EXTRACT SOLUTION
+fprintf('\n[# EXTRACT SOLUTION]\n');
+
 i1 = nStressDofs;
 i2 = i1 + nDispDofs;
 i3 = i2 + nContactTractionDofs;
@@ -94,203 +127,64 @@ u_h = solution(i1+1:i2);
 tc_h = solution(i2+1:i3);
 uc_h = solution(i3+1:end);
 
-results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac);
+%% STEP 7: PLOT FRACTURE TRACTION
 
+nF = fracture.nFaces;
 
-function results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac)
-    fprintf('\n========================================\n');
-    fprintf('       CONTACT PATCH TEST CHECK\n');
-    fprintf('========================================\n');
+xi = zeros(nF,1);
+tN = zeros(nF,1);
+tT = zeros(nF,1);
 
-    % sigmaExact = diag([1,0,0]);
-    sigmaExact = diag([1, 1/3, 1/3]);
-    tExact = [1;0;0];
+n = fracture.normal(:);
+t = fracture.tangent(:);
 
-    %% 1. BULK STRESS
-    sigma_exact_dofs = zeros(size(sigma_h));
-    visited = false(size(sigma_h));
+centers = zeros(3,nF);
 
-    for e = 1:numel(cell_struct)
+for k = 1:nF
+    centers(:,k) = face_struct(fracture.faces(k)).center(:);
+end
 
-        faces = cell_struct(e).faces;
+% Coordinate measured from the first fracture face
+s = t.' * centers;
+s0 = min(s);
 
-        for lf = 1:numel(faces)
+for k = 1:nF
 
-            f = faces(lf);
-            geom = face_global_geom(f);
-            Af = face_struct(f).area;
+    f = fracture.faces(k);
+    xf = face_struct(f).center(:);
+    geom = face_global_geom(f);
 
-            traction = sigmaExact * geom.n;
+    xi(k) = dot(xf,t) - s0;
 
-            coeff = zeros(6,1);
-            coeff(1:3) = Af * [ ...
-                dot(traction,geom.t1);
-                dot(traction,geom.t2);
-                dot(traction,geom.n)];
+    dofs = fracture.traction_dofs(k,:);
+    coeff = tc_h(dofs);
 
-            cols = 6*(lf-1)+(1:6);
-            dofs = cell_struct(e).stress_dofs(cols);
+    Psi = evaluateFaceBasis(xf, xf, geom.Qf, geom.t1, geom.t2, geom.n, face_struct(f).area, geom.m20, geom.m02);
 
-            if any(visited(dofs))
-                assert(norm(sigma_exact_dofs(dofs)-coeff) < 1e-10, 'Inconsistent shared stress DOF values.');
-            end
+    traction = Psi * coeff;
 
-            sigma_exact_dofs(dofs) = coeff;
-            visited(dofs) = true;
-
-        end
-    end
-
-    assert(all(visited), 'Some stress DOFs were not visited.');
-
-    results.stress_error = norm(sigma_h-sigma_exact_dofs) / max(norm(sigma_exact_dofs),eps);
-
-    fprintf('\n[1] BULK STRESS\n');
-    fprintf('  Relative DOF error: %.6e\n', results.stress_error);
-
-
-    %% 2. BULK DISPLACEMENT
-    % displacement evaluated at the cell barycenter.
-
-    u_exact_centers = zeros(3*numel(cell_struct),1);
-    u_num_centers = zeros(3*numel(cell_struct),1);
-
-    for e = 1:numel(cell_struct)
-
-        xE = cell_struct(e).center(:);
-        isPlus = xE(1) > xFrac;
-        ue = [xE(1)/3 + double(isPlus); 0; 0];
- 
-        % 
-        % ue = [0.4*xE(1);
-        %      -0.1*xE(2);
-        %      -0.1*xE(3)];
-
-        % if isPlus
-        %     ue(1) = ue(1)+1;
-        % end
-
-        u_exact_centers(3*(e-1)+(1:3)) = ue;
-        u_num_centers(3*(e-1)+(1:3)) = u_h(6*(e-1)+(1:3));
-
-    end
-
-    results.displacement_center_error = norm(u_num_centers-u_exact_centers) / max(norm(u_exact_centers),eps);
-
-    fprintf('\n[2] BULK DISPLACEMENT\n');
-    fprintf('  Relative cell-center error: %.6e\n', results.displacement_center_error);
-
-
-    %% 3. CONTACT TRACTION
-    tc_exact_dofs = zeros(size(tc_h));
-
-    for k = 1:fracture.nFaces
-
-        f = fracture.faces(k);
-        geom = face_global_geom(f);
-        Af = face_struct(f).area;
-
-        coeff = zeros(6,1);
-        coeff(1:3) = Af * [ ...
-            dot(tExact,geom.t1);
-            dot(tExact,geom.t2);
-            dot(tExact,geom.n)];
-
-        dofs = fracture.traction_dofs(k,:);
-        tc_exact_dofs(dofs) = coeff;
-
-    end
-
-    results.contact_traction_error = norm(tc_h-tc_exact_dofs) / max(norm(tc_exact_dofs),eps);
-
-    fprintf('\n[3] CONTACT TRACTION\n');
-    fprintf('  Relative DOF error: %.6e\n', results.contact_traction_error);
-
-
-    %% 4. INTERFACE DISPLACEMENT
-    % reconstruct displacement on each side using the corresponding local face basis.
-
-    errMinus2 = 0;
-    errPlus2 = 0;
-    errJump2 = 0;
-
-    normMinus2 = 0;
-    normPlus2 = 0;
-    normJump2 = 0;
-
-    for k = 1:fracture.nFaces
-
-        f = fracture.faces(k);
-        face = face_struct(f);
-
-        em = fracture.minus_cells(k);
-        ep = fracture.plus_cells(k);
-
-        lfm = find(cell_struct(em).faces == f);
-        lfp = find(cell_struct(ep).faces == f);
-
-        gm = B_local{em}.geom(lfm);
-        gp = B_local{ep}.geom(lfp);
-
-        dm = fracture.disp_minus_dofs(k,:);
-        dp = fracture.disp_plus_dofs(k,:);
-
-        cm = uc_h(dm);
-        cp = uc_h(dp);
-
-        xf = face.center(:);
-        Af = face.area;
-
-        qp = face.quad_points;
-        w = face.quad_weights;
-
-        for q = 1:numel(w)
-
-            xq = qp(:,q);
-
-            PhiMinus = evaluateFaceBasis(xq,xf,gm.Qf,gm.t1,gm.t2,gm.n, Af,gm.m20,gm.m02);
-
-            PhiPlus = evaluateFaceBasis(xq,xf,gp.Qf,gp.t1,gp.t2,gp.n, Af,gp.m20,gp.m02);
-
-            um_num = PhiMinus*cm;
-            up_num = PhiPlus*cp;
-
-            % um_exact = [0.4*xq(1);
-            %            -0.1*xq(2);
-            %            -0.1*xq(3)];
-            % 
-            % up_exact = um_exact+[1;0;0];
-
-            um_exact = [xq(1)/3; 0; 0];
-            up_exact = um_exact + [1; 0; 0];
-
-            jump_num = up_num-um_num;
-            jump_exact = up_exact-um_exact;
-
-            errMinus2 = errMinus2 + w(q)*sum((um_num-um_exact).^2);
-
-            errPlus2 = errPlus2 + w(q)*sum((up_num-up_exact).^2);
-
-            errJump2 = errJump2 + w(q)*sum((jump_num-jump_exact).^2);
-
-            normMinus2 = normMinus2 + w(q)*sum(um_exact.^2);
-
-            normPlus2 = normPlus2 + w(q)*sum(up_exact.^2);
-
-            normJump2 = normJump2 + w(q)*sum(jump_exact.^2);
-
-        end
-    end
-
-    results.interface_minus_error = sqrt(errMinus2/max(normMinus2,eps));
-
-    results.interface_plus_error = sqrt(errPlus2/max(normPlus2,eps));
-
-    results.jump_error = sqrt(errJump2/max(normJump2,eps));
-
-    fprintf('\n[4] INTERFACE DISPLACEMENT\n');
-    fprintf('  Minus-side relative error: %.6e\n', results.interface_minus_error);
-    fprintf('  Plus-side relative error:  %.6e\n', results.interface_plus_error);
-    fprintf('  Jump relative error:       %.6e\n', results.jump_error);
+    tN(k) = dot(traction,n);
+    tT(k) = dot(traction,t);
 
 end
+
+[xi,idx] = sort(xi);
+tN = tN(idx);
+tT = tT(idx);
+
+figure;
+
+subplot(2,1,1);
+plot(xi,tN,'o-','LineWidth',1.5);
+yline(-sigma0*sind(psi)^2,'--');
+xlabel('\xi');
+ylabel('Normal traction (MPa)');
+title('Normal Contact Traction');
+grid on;
+
+subplot(2,1,2);
+plot(xi,tT,'o-','LineWidth',1.5);
+xlabel('\xi');
+ylabel('Tangential traction (MPa)');
+title('Tangential Contact Traction');
+grid on;
