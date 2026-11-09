@@ -5,13 +5,14 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 %% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: unit cube model]\n');
 
-meshName = 'unit_cube';
+val = 16;
+Nx = val;
+Ny = val;
+Nz = val;
 
-Nx = 8;
-Ny = 8;
-Nz = 4;
 G = cartGrid([Nx Ny Nz],[1 1 1]);
 G = computeGeometry(G);
+
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
 %% STEP 2: SET UP GEOMETRY
@@ -21,276 +22,464 @@ mu = 1;
 alpha = 1;
 s0 = 1;
 xFrac = 0.5;
+yRange = [0.25, 0.75];
+zRange = [0.25, 0.75];
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
 face_struct = assignFaceProperties(face_struct); 
 
-% expand stress DOFs over fracture (sigma_h)
-[cell_struct, face_struct, fracture] = assignFractureProperties(cell_struct, face_struct, xFrac);
+% assign DOFs over the fracture
+[cell_struct, face_struct, fracture] = assignFractureProperties(cell_struct, face_struct, xFrac, yRange, zRange);
 
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
+% DOFs assignment for elasticity part
 [cell_struct, face_struct, nStressDofs] = assignFractureStressDofs(cell_struct, face_struct, fracture);
+fracture = buildFractureSurfaceMesh(fracture, face_struct, V3);
+[cell_struct, face_struct, fracture, flowDofs] = assignFractureFlowDofs(cell_struct, face_struct, fracture);
 
-% bulk displacement DOFs
-nDispDofs = 6*numel(cell_struct);
+%% STEP 3: COMPUTE LOCAL MFD OPERATORS
+fprintf('\n[# COMPUTE LOCAL MFD OPERATORS]\n');
 
-fracture = assignInterfaceDofs(fracture);
+% Bulk Darcy flow
+A_mfd_local = computeMFDInnerProduct(cell_struct, face_struct);
+E_mfd_local = computeMFDCoupling(cell_struct);
 
-nContactTractionDofs = fracture.nTractionDofs;
-nInterfaceDispDofs = fracture.nDispDofs;
+% Fracture Darcy flow
+AF_mfd_local = computeFractureMFDInnerProduct(fracture);
+EF_mfd_local = computeFractureMFDCoupling(fracture);
 
-nTotalDofs = nStressDofs + nDispDofs + nContactTractionDofs + nInterfaceDispDofs;
+%% STEP 4: COMPUTE INTERFACE OPERATORS
+fprintf('\n[# COMPUTE INTERFACE OPERATORS]\n');
 
-%% STEP 3: (LOCAL LEVEL) COMPUTE VEM MATRICES
-fprintf('\n[# COMPUTE LOCAL OPERATORS]\n');
+Tminus = 1;
+Tplus = 1;
 
-% INERTIA MATRIX (quadrature approach, Tonon approach)
-A_local = computeAE_Tonon(cell_struct, face_struct, V3);
+R = computeFractureRobinOperator(fracture, face_struct, flowDofs, Tminus, Tplus);
+TF = computeFractureTransferOperator(fracture, cell_struct, face_struct, flowDofs);
 
-% DIVERGENCE MATRIX (quadrature approach, closed form approach from notes)
-B_local = computeBE(cell_struct, face_struct, V3);
-face_global_geom = computeGlobalFaceGeometry(face_struct, V3);
+test_flowSignConvention(cell_struct, fracture, E_mfd_local, EF_mfd_local, TF);
 
-% PROJECTION MATRIX
-D_local = computeDE(cell_struct, A_local, B_local);
-Bproj = computeBproj(cell_struct, face_struct, D_local, B_local);
-P_local = computeProjectionMatrix(cell_struct, Bproj);
+%% STEP 5: GLOBAL FLOW ASSEMBLY
+[A, flowBlocks] = assembleMixedDimensionalFlowSystem(cell_struct, fracture, flowDofs, A_mfd_local, E_mfd_local, AF_mfd_local, EF_mfd_local, R, TF);
 
-K_cons = computeConsistency(cell_struct, P_local);
-K_stab = computeStabilization(cell_struct, face_struct, B_local, P_local);
+% b = assembleFlowRHS(cell_struct, fracture, flowDofs);
+exactFun = @(x) fullFractureExactData(x, xFrac);
 
-T = computeInterfaceT(fracture, cell_struct, face_struct, B_local, face_global_geom, nStressDofs);
+b = assembleFlowRHS( ...
+    cell_struct, fracture, flowDofs, face_struct, exactFun);
 
-% contact stiffness parameters
-cn = 1;
-cT = 1;
+[Ared, bred, bc] = applyFlowBC( ...
+    A, b, cell_struct, face_struct, fracture, flowDofs, exactFun);
 
-Ac = computeInterfaceAc(fracture, face_struct, face_global_geom, cn, cT);
 
-J = computeInterfaceJ(fracture, cell_struct, face_struct, B_local, face_global_geom);
+%% STEP 6: SOLVE GLOBAL FLOW SYSTEM
+fprintf('\n[# SOLVE MIXED-DIMENSIONAL FLOW SYSTEM]\n');
 
-%% STEP 4: GLOBAL ASSEMBLY
-fprintf('\n[# ASSEMBLE GLOBAL MATRICES]\n');
-[A_global, B_global] = assembleContactBulkMatrices(cell_struct, face_struct, face_global_geom, B_local, K_cons, K_stab, nStressDofs);
+xred = Ared \ bred;
 
-K_global = assembleContactGlobalSystem(A_global, B_global, Ac, T, J);
+% Recover full solution including prescribed boundary DOFs
+x = zeros(size(A, 1), 1);
 
-RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs, nDispDofs, nContactTractionDofs, nInterfaceDispDofs, xFrac);
+x(bc.freeDofs) = xred;
+x(bc.fixedDofs) = bc.fixedValues;
 
-%% STEP 5: SOLVE GLOBAL CONTACT SYSTEM
-fprintf('\n[# SOLVE CONTACT SYSTEM]\n');
+% Extract solution components
+w = x(1:flowDofs.nW);
 
-solution = K_global \ RHS;
+p = x(flowDofs.offset.p + (1:flowDofs.nP));
 
-% extract unknowns
-i1 = nStressDofs;
-i2 = i1 + nDispDofs;
-i3 = i2 + nContactTractionDofs;
+wF = x(flowDofs.offset.wF + (1:flowDofs.nWF));
 
-sigma_h = solution(1:i1);
-u_h = solution(i1+1:i2);
-tc_h = solution(i2+1:i3);
-uc_h = solution(i3+1:end);
+pF = x(flowDofs.offset.pF + (1:flowDofs.nPF));
 
-results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac);
 
+%% STEP 7: COMPARE WITH MANUFACTURED EXACT SOLUTION
 
-function results = checkContactPatchTest(cell_struct, face_struct, fracture, face_global_geom, B_local, sigma_h, u_h, tc_h, uc_h, A_global, B_global, Ac, T, J, RHS, xFrac)
-    fprintf('\n========================================\n');
-    fprintf('       CONTACT PATCH TEST CHECK\n');
-    fprintf('========================================\n');
+fprintf('\n[# MANUFACTURED SOLUTION ERROR]\n');
 
-    % sigmaExact = diag([1,0,0]);
-    sigmaExact = diag([1, 1/3, 1/3]);
-    tExact = [1;0;0];
+%% BULK PRESSURE ERROR
 
-    %% 1. BULK STRESS
-    sigma_exact_dofs = zeros(size(sigma_h));
-    visited = false(size(sigma_h));
+pExact = zeros(flowDofs.nP, 1);
+bulkVolumes = zeros(flowDofs.nP, 1);
 
-    for e = 1:numel(cell_struct)
+for e = 1:numel(cell_struct)
 
-        faces = cell_struct(e).faces;
+    xc = cell_struct(e).center(:);
 
-        for lf = 1:numel(faces)
+    exact = fullFractureExactData(xc, xFrac);
 
-            f = faces(lf);
-            geom = face_global_geom(f);
-            Af = face_struct(f).area;
-
-            traction = sigmaExact * geom.n;
-
-            coeff = zeros(6,1);
-            coeff(1:3) = Af * [ ...
-                dot(traction,geom.t1);
-                dot(traction,geom.t2);
-                dot(traction,geom.n)];
-
-            cols = 6*(lf-1)+(1:6);
-            dofs = cell_struct(e).stress_dofs(cols);
-
-            if any(visited(dofs))
-                assert(norm(sigma_exact_dofs(dofs)-coeff) < 1e-10, 'Inconsistent shared stress DOF values.');
-            end
-
-            sigma_exact_dofs(dofs) = coeff;
-            visited(dofs) = true;
-
-        end
-    end
-
-    assert(all(visited), 'Some stress DOFs were not visited.');
-
-    results.stress_error = norm(sigma_h-sigma_exact_dofs) / max(norm(sigma_exact_dofs),eps);
-
-    fprintf('\n[1] BULK STRESS\n');
-    fprintf('  Relative DOF error: %.6e\n', results.stress_error);
-
-
-    %% 2. BULK DISPLACEMENT
-    % displacement evaluated at the cell barycenter.
-
-    u_exact_centers = zeros(3*numel(cell_struct),1);
-    u_num_centers = zeros(3*numel(cell_struct),1);
-
-    for e = 1:numel(cell_struct)
-
-        xE = cell_struct(e).center(:);
-        isPlus = xE(1) > xFrac;
-        ue = [xE(1)/3 + double(isPlus); 0; 0];
- 
-        % 
-        % ue = [0.4*xE(1);
-        %      -0.1*xE(2);
-        %      -0.1*xE(3)];
-
-        % if isPlus
-        %     ue(1) = ue(1)+1;
-        % end
-
-        u_exact_centers(3*(e-1)+(1:3)) = ue;
-        u_num_centers(3*(e-1)+(1:3)) = u_h(6*(e-1)+(1:3));
-
-    end
-
-    results.displacement_center_error = norm(u_num_centers-u_exact_centers) / max(norm(u_exact_centers),eps);
-
-    fprintf('\n[2] BULK DISPLACEMENT\n');
-    fprintf('  Relative cell-center error: %.6e\n', results.displacement_center_error);
-
-
-    %% 3. CONTACT TRACTION
-    tc_exact_dofs = zeros(size(tc_h));
-
-    for k = 1:fracture.nFaces
-
-        f = fracture.faces(k);
-        geom = face_global_geom(f);
-        Af = face_struct(f).area;
-
-        coeff = zeros(6,1);
-        coeff(1:3) = Af * [ ...
-            dot(tExact,geom.t1);
-            dot(tExact,geom.t2);
-            dot(tExact,geom.n)];
-
-        dofs = fracture.traction_dofs(k,:);
-        tc_exact_dofs(dofs) = coeff;
-
-    end
-
-    results.contact_traction_error = norm(tc_h-tc_exact_dofs) / max(norm(tc_exact_dofs),eps);
-
-    fprintf('\n[3] CONTACT TRACTION\n');
-    fprintf('  Relative DOF error: %.6e\n', results.contact_traction_error);
-
-
-    %% 4. INTERFACE DISPLACEMENT
-    % reconstruct displacement on each side using the corresponding local face basis.
-
-    errMinus2 = 0;
-    errPlus2 = 0;
-    errJump2 = 0;
-
-    normMinus2 = 0;
-    normPlus2 = 0;
-    normJump2 = 0;
-
-    for k = 1:fracture.nFaces
-
-        f = fracture.faces(k);
-        face = face_struct(f);
-
-        em = fracture.minus_cells(k);
-        ep = fracture.plus_cells(k);
-
-        lfm = find(cell_struct(em).faces == f);
-        lfp = find(cell_struct(ep).faces == f);
-
-        gm = B_local{em}.geom(lfm);
-        gp = B_local{ep}.geom(lfp);
-
-        dm = fracture.disp_minus_dofs(k,:);
-        dp = fracture.disp_plus_dofs(k,:);
-
-        cm = uc_h(dm);
-        cp = uc_h(dp);
-
-        xf = face.center(:);
-        Af = face.area;
-
-        qp = face.quad_points;
-        w = face.quad_weights;
-
-        for q = 1:numel(w)
-
-            xq = qp(:,q);
-
-            PhiMinus = evaluateFaceBasis(xq,xf,gm.Qf,gm.t1,gm.t2,gm.n, Af,gm.m20,gm.m02);
-
-            PhiPlus = evaluateFaceBasis(xq,xf,gp.Qf,gp.t1,gp.t2,gp.n, Af,gp.m20,gp.m02);
-
-            um_num = PhiMinus*cm;
-            up_num = PhiPlus*cp;
-
-            % um_exact = [0.4*xq(1);
-            %            -0.1*xq(2);
-            %            -0.1*xq(3)];
-            % 
-            % up_exact = um_exact+[1;0;0];
-
-            um_exact = [xq(1)/3; 0; 0];
-            up_exact = um_exact + [1; 0; 0];
-
-            jump_num = up_num-um_num;
-            jump_exact = up_exact-um_exact;
-
-            errMinus2 = errMinus2 + w(q)*sum((um_num-um_exact).^2);
-
-            errPlus2 = errPlus2 + w(q)*sum((up_num-up_exact).^2);
-
-            errJump2 = errJump2 + w(q)*sum((jump_num-jump_exact).^2);
-
-            normMinus2 = normMinus2 + w(q)*sum(um_exact.^2);
-
-            normPlus2 = normPlus2 + w(q)*sum(up_exact.^2);
-
-            normJump2 = normJump2 + w(q)*sum(jump_exact.^2);
-
-        end
-    end
-
-    results.interface_minus_error = sqrt(errMinus2/max(normMinus2,eps));
-
-    results.interface_plus_error = sqrt(errPlus2/max(normPlus2,eps));
-
-    results.jump_error = sqrt(errJump2/max(normJump2,eps));
-
-    fprintf('\n[4] INTERFACE DISPLACEMENT\n');
-    fprintf('  Minus-side relative error: %.6e\n', results.interface_minus_error);
-    fprintf('  Plus-side relative error:  %.6e\n', results.interface_plus_error);
-    fprintf('  Jump relative error:       %.6e\n', results.jump_error);
-
+    pExact(e) = exact.pBulk;
+    bulkVolumes(e) = cell_struct(e).volume;
 end
+
+% Volume-weighted relative discrete L2 error
+bulkError = sqrt(sum(bulkVolumes .* (p - pExact).^2));
+bulkNorm = sqrt(sum(bulkVolumes .* pExact.^2));
+
+relBulkPressureError = bulkError / max(bulkNorm, eps);
+
+%% FRACTURE PRESSURE ERROR
+
+pFExact = zeros(flowDofs.nPF, 1);
+fractureAreas = zeros(flowDofs.nPF, 1);
+
+for k = 1:fracture.nFaces
+
+    f = fracture.faces(k);
+    dof = fracture.pressure_dofs(k);
+
+    xf = face_struct(f).center(:);
+
+    exact = fullFractureExactData(xf, xFrac);
+
+    pFExact(dof) = exact.pFrac;
+    fractureAreas(dof) = fracture.face_areas(k);
+end
+
+% Area-weighted relative discrete L2 error
+fractureError = sqrt(sum(fractureAreas .* (pF - pFExact).^2));
+fractureNorm = sqrt(sum(fractureAreas .* pFExact.^2));
+
+relFracturePressureError = fractureError / max(fractureNorm, eps);
+
+%% REPORT
+
+fprintf('  Bulk pressure absolute error: %.6e\n', bulkError);
+fprintf('  Bulk pressure relative error: %.6e\n', relBulkPressureError);
+
+fprintf('  Fracture pressure absolute error: %.6e\n', fractureError);
+fprintf('  Fracture pressure relative error: %.6e\n', relFracturePressureError);
+
+fprintf('  Status: ERROR COMPUTED\n');
+
+% Bulk pressure errors adjacent to the fracture plane
+tol = 1e-10;
+h = 1 / Nx;
+
+nearFracErrors = [];
+
+for e = 1:numel(cell_struct)
+
+    xc = cell_struct(e).center(:);
+
+    if abs(abs(xc(1)-xFrac) - h/2) < tol && ...
+       xc(2) >= yRange(1) && xc(2) <= yRange(2) && ...
+       xc(3) >= zRange(1) && xc(3) <= zRange(2)
+
+        nearFracErrors(end+1,1) = p(e) - pExact(e);
+    end
+end
+
+fprintf('  Bulk pressure mean error near fracture: %.6e\n', ...
+    mean(nearFracErrors));
+
+fprintf('  Bulk pressure error range near fracture: [%.6e, %.6e]\n', ...
+    min(nearFracErrors), max(nearFracErrors));
+
+% Fracture pressure constant offset
+pFdiff = pF - pFExact;
+
+offset = sum(fractureAreas .* pFdiff) / sum(fractureAreas);
+
+fprintf('  Fracture pressure offset: %.6e\n', offset);
+
+%% STEP 8: FLUX CONVERGENCE ERROR
+
+fprintf('\n[# MANUFACTURED FLUX ERROR]\n');
+
+% Exact bulk flux DOFs
+wExact = zeros(flowDofs.nW, 1);
+
+for f = 1:numel(face_struct)
+
+    xf = face_struct(f).center(:);
+    Af = face_struct(f).area;
+
+    n = face_struct(f).normal(:);
+    n = n / norm(n);
+
+    exact = exactFun(xf);
+
+    if face_struct(f).is_fracture
+
+        % Original DOF: minus-side cell
+        dofMinus = face_struct(f).flow_dof;
+
+        % Duplicated DOF: plus-side cell
+        dofPlus = face_struct(f).flow_dof_plus;
+
+        wExact(dofMinus) = ...
+            Af * dot(exact.wBulkMinus, n);
+
+        wExact(dofPlus) = ...
+            Af * dot(exact.wBulkPlus, n);
+
+    else
+
+        % Ordinary bulk face
+        wExact(face_struct(f).flow_dof) = ...
+            Af * dot(exact.wBulk, n);
+
+    end
+end
+
+
+% % Exact bulk flux DOFs
+% wExact = zeros(flowDofs.nW, 1);
+% 
+% for f = 1:numel(face_struct)
+% 
+%     xf = face_struct(f).center(:);
+%     Af = face_struct(f).area;
+% 
+%     exact = exactFun(xf);
+% 
+%     % Global face normal must match the flux DOF orientation
+%     n = face_struct(f).normal(:);
+%     n = n / norm(n);
+% 
+%     wExact(face_struct(f).flow_dof) = ...
+%         Af * dot(exact.wBulk, n);
+% 
+%     % Fracture face: duplicated flux DOF on the plus side
+%     if face_struct(f).is_fracture
+% 
+%         dofPlus = face_struct(f).flow_dof_plus;
+% 
+%         wExact(dofPlus) = ...
+%             Af * dot(exact.wBulkPlus, n);
+%     end
+% end
+
+% Exact fracture edge flux DOFs
+wFExact = zeros(flowDofs.nWF, 1);
+
+for e = 1:fracture.nEdges
+
+    xe = fracture.edge_centers(e,:)';
+    Le = fracture.edge_lengths(e);
+
+    exact = exactFun(xe);
+
+    nu = fracture.edge_normals(e,:)';
+    nu = nu / norm(nu);
+
+    wFExact(fracture.edge_flux_dofs(e)) = ...
+        Le * dot(exact.wFrac, nu);
+end
+
+% Extract pure bulk/fracture MFD inner products
+W = flowBlocks.W;
+WF = flowBlocks.WF;
+
+% MFD norm errors
+dw = w - wExact;
+dwF = wF - wFExact;
+
+bulkFluxError = sqrt(max(dw' * W * dw, 0));
+fractureFluxError = sqrt(max(dwF' * WF * dwF, 0));
+
+bulkFluxNorm = sqrt(max(wExact' * W * wExact, 0));
+fractureFluxNorm = sqrt(max(wFExact' * WF * wFExact, 0));
+
+relBulkFluxError = bulkFluxError / max(bulkFluxNorm, eps);
+relFractureFluxError = fractureFluxError / max(fractureFluxNorm, eps);
+
+fprintf('  Bulk flux absolute error: %.6e\n', bulkFluxError);
+fprintf('  Bulk flux relative error: %.6e\n', relBulkFluxError);
+
+fprintf('  Fracture flux absolute error: %.6e\n', fractureFluxError);
+fprintf('  Fracture flux relative error: %.6e\n', relFractureFluxError);
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function exact = fullFractureExactData(x, xFrac)
+% Partial-fracture manufactured solution.
+% Varela et al. (2023), Appendix D.2 and Table 8.
+%
+% Fracture: x = xFrac, y,z in [0.25,0.75]
+% Kbulk = I, Kfracture = I, Tminus = Tplus = 1
+% n = 1.5
+
+    x = x(:);
+    assert(numel(x) == 3, 'Expected a 3D coordinate.');
+
+    X = x(1);
+    y = x(2);
+    z = x(3);
+
+    lo = 0.25;
+    hi = 0.75;
+    q = 2.5;             % n + 1
+
+    %% DISTANCE TO FINITE FRACTURE
+
+    alpha = X - xFrac;
+
+    dy = y - min(max(y, lo), hi);
+    dz = z - min(max(z, lo), hi);
+
+    d = sqrt(alpha^2 + dy^2 + dz^2);
+
+    inside = (y >= lo && y <= hi && ...
+              z >= lo && z <= hi);
+
+    %% BUBBLE FUNCTION
+
+    omega = 0;
+    domegaDy = 0;
+    domegaDz = 0;
+    lapOmega = 0;
+
+    if inside
+
+        a = (y-lo)*(hi-y);
+        c = (z-lo)*(hi-z);
+
+        da = lo+hi-2*y;
+        dc = lo+hi-2*z;
+
+        omega = a^2*c^2;
+
+        domegaDy = 2*a*da*c^2;
+        domegaDz = 2*c*dc*a^2;
+
+        lapOmega = ...
+            (2*da^2 - 4*a)*c^2 + ...
+            (2*dc^2 - 4*c)*a^2;
+    end
+
+    %% BULK PRESSURE
+
+    exact.pBulk = d^q + omega*d;
+
+    %% BULK SOURCE AND FLUX
+
+    if d > 0
+
+        gradD = [alpha; dy; dz] / d;
+
+        % Number of active distance coordinates.
+        % alpha is always one active coordinate.
+        kdim = 1 + (dy ~= 0) + (dz ~= 0);
+
+        % Laplacian of d^q
+        lapDq = q*(q + kdim - 2)*d^(q-2);
+
+        gradOmega = [0; domegaDy; domegaDz];
+
+        % Laplacian of omega*d
+        lapOmegaD = d*lapOmega + ...
+            2*dot(gradOmega,gradD) + ...
+            omega*(kdim-1)/d;
+
+        exact.fBulk = -lapDq - lapOmegaD;
+
+        exact.wBulk = ...
+            -q*d^(q-1)*gradD ...
+            -omega*gradD ...
+            -d*gradOmega;
+
+    else
+
+        % One-sided bulk traces on the fracture.
+        exact.fBulk = 0;
+        exact.wBulk = [omega; 0; 0];
+    end
+
+    %% ONE-SIDED BULK FLUX TRACES
+
+    exact.wBulkMinus = [ omega; 0; 0];
+    exact.wBulkPlus  = [-omega; 0; 0];
+
+    %% FRACTURE PRESSURE AND FLUX
+
+    exact.pFrac = -omega;
+
+    exact.wFrac = [0; domegaDy; domegaDz];
+
+    %% FRACTURE SOURCE
+
+    exact.fFrac = lapOmega - 2*omega;
+
+    %% INTERFACE TRANSFER
+
+    exact.lambdaMinus = omega;
+    exact.lambdaPlus = omega;
+
+    %% AUXILIARY DATA
+
+    exact.omega = omega;
+    exact.d = d;
+end
+
+
+% function exact = fullFractureExactData(x, xFrac)
+% % Exact manufactured solution for a full planar fracture.
+% %
+% % Fracture:
+% %   x = xFrac, 0 <= y,z <= 1
+% %
+% % Kbulk = I, Kfracture = I
+% % Tminus = Tplus = 1
+% %
+% % x: 3-component coordinate vector
+% 
+%     x = x(:);
+% 
+%     assert(numel(x) == 3, 'Expected a 3D coordinate.');
+%     assert(all(isfinite(x)), 'Invalid coordinate.');
+% 
+%     y = x(2);
+%     z = x(3);
+% 
+%     d = abs(x(1) - xFrac);
+% 
+%     a = y * (1 - y);
+%     c = z * (1 - z);
+% 
+%     omega = a^2 * c^2;
+% 
+%     lapOmegaY = 2 * ((1 - 2*y)^2 - 2*a) * c^2;
+%     lapOmegaZ = 2 * ((1 - 2*z)^2 - 2*c) * a^2;
+% 
+%     lapOmega = lapOmegaY + lapOmegaZ;
+% 
+%     exact.pBulk = d^(5/2) + omega * d;
+%     exact.pFrac = -omega;
+% 
+%     exact.lambdaMinus = omega;
+%     exact.lambdaPlus = omega;
+% 
+%     exact.fBulk = -(15/4) * sqrt(d) - d * lapOmega;
+%     exact.fFrac = lapOmega - 2 * omega;
+% 
+%     exact.omega = omega;
+%     exact.d = d;
+% 
+%     %% EXACT BULK DARCY FLUX
+% 
+%     domegaDy = 2 * a * (1 - 2*y) * c^2;
+%     domegaDz = 2 * c * (1 - 2*z) * a^2;
+% 
+%     wx = -sign(x(1) - xFrac) * ...
+%         ((5/2) * d^(3/2) + omega);
+% 
+%     wy = -d * domegaDy;
+%     wz = -d * domegaDz;
+% 
+%     exact.wBulk = [wx; wy; wz];
+% 
+%     % One-sided traces on the fracture
+%     exact.wBulkMinus = [ omega; -d*domegaDy; -d*domegaDz ];
+%     exact.wBulkPlus  = [-omega; -d*domegaDy; -d*domegaDz ];
+% 
+%     %% EXACT FRACTURE DARCY FLUX
+% 
+%     exact.wFrac = [0; domegaDy; domegaDz];
+% end
