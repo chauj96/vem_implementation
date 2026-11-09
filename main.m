@@ -113,7 +113,7 @@ RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs
 fprintf('\n[# SOLVE CONTACT SYSTEM]\n');
 
 y = K_bc \ RHS_bc;
-solution = bc.xp + bc.Z*y;
+solution = y(1:bc.nOriginal);
 
 %% STEP 6: EXTRACT SOLUTION
 fprintf('\n[# EXTRACT SOLUTION]\n');
