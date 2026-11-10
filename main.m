@@ -128,63 +128,76 @@ tc_h = solution(i2+1:i3);
 uc_h = solution(i3+1:end);
 
 %% STEP 7: PLOT FRACTURE TRACTION
-
 nF = fracture.nFaces;
 
-xi = zeros(nF,1);
-tN = zeros(nF,1);
-tT = zeros(nF,1);
-
-n = fracture.normal(:);
-t = fracture.tangent(:);
-
-centers = zeros(3,nF);
-
-for k = 1:nF
-    centers(:,k) = face_struct(fracture.faces(k)).center(:);
-end
-
-% Coordinate measured from the first fracture face
-s = t.' * centers;
-s0 = min(s);
+jump_N = zeros(nF,1);
+jump_T = zeros(nF,1);
+xF = zeros(nF,1);
+yF = zeros(nF,1);
 
 for k = 1:nF
 
     f = fracture.faces(k);
+
     xf = face_struct(f).center(:);
-    geom = face_global_geom(f);
+    Af = face_struct(f).area;
 
-    xi(k) = dot(xf,t) - s0;
+    gc = face_global_geom(f);
 
-    dofs = fracture.traction_dofs(k,:);
-    coeff = tc_h(dofs);
+    % Minus and plus cells
+    em = fracture.minus_cells(k);
+    ep = fracture.plus_cells(k);
 
-    Psi = evaluateFaceBasis(xf, xf, geom.Qf, geom.t1, geom.t2, geom.n, face_struct(f).area, geom.m20, geom.m02);
+    % Local face indices
+    lfm = find(cell_struct(em).faces == f);
+    lfp = find(cell_struct(ep).faces == f);
 
-    traction = Psi * coeff;
+    % Local face geometries
+    gm = B_local{em}.geom(lfm);
+    gp = B_local{ep}.geom(lfp);
 
-    tN(k) = dot(traction,n);
-    tT(k) = dot(traction,t);
+    % Mortar displacement DOFs
+    um = uc_h(fracture.disp_minus_dofs(k,:));
+    up = uc_h(fracture.disp_plus_dofs(k,:));
+
+    % Evaluate local displacement basis at face center
+    Phi_m = evaluateFaceBasis( ...
+        xf, xf, gm.Qf, gm.t1, gm.t2, gm.n, ...
+        Af, gm.m20, gm.m02);
+
+    Phi_p = evaluateFaceBasis( ...
+        xf, xf, gp.Qf, gp.t1, gp.t2, gp.n, ...
+        Af, gp.m20, gp.m02);
+
+    % Reconstruct physical displacement jump
+    jump = Phi_m*um - Phi_p*up;
+
+    % Normal and tangential components
+    jump_N(k) = dot(jump, gc.n);
+    jump_T(k) = dot(jump, gc.t1);
+
+    xF(k) = xf(1);
+    yF(k) = xf(2);
 
 end
 
-[xi,idx] = sort(xi);
-tN = tN(idx);
-tT = tT(idx);
+% Position along fracture
+s = xF*cosd(psi) + yF*sind(psi);
+[s,idx] = sort(s);
 
 figure;
 
-subplot(2,1,1);
-plot(xi,tN,'o-','LineWidth',1.5);
-yline(-sigma0*sind(psi)^2,'--');
-xlabel('\xi');
-ylabel('Normal traction (MPa)');
-title('Normal Contact Traction');
-grid on;
+subplot(2,1,1)
+plot(s, jump_N(idx), 'o-', 'LineWidth', 1.5)
+xlabel('Position along fracture')
+ylabel('Normal jump')
+grid on
 
-subplot(2,1,2);
-plot(xi,tT,'o-','LineWidth',1.5);
-xlabel('\xi');
-ylabel('Tangential traction (MPa)');
-title('Tangential Contact Traction');
-grid on;
+subplot(2,1,2)
+plot(s, jump_T(idx), 'o-', 'LineWidth', 1.5)
+xlabel('Position along fracture')
+ylabel('Tangential jump')
+grid on
+
+fprintf('Max |normal jump| = %.6e\n', max(abs(jump_N)));
+fprintf('Max |tangential jump| = %.6e\n', max(abs(jump_T)));

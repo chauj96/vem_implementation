@@ -24,7 +24,10 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
         % tr(C^-1) would make the stabilization drift with lambda
         kE = cell_struct(e).Cinv(4,4);
     
-        hE = cell_struct(e).diameter;
+        % hE = cell_struct(e).diameter;
+        HE =10;
+
+        hE = sqrt(cell_struct(e).volume / HE);
     
         % projected polynomial stresses
         proj = projToMatrices(P_local{e});
