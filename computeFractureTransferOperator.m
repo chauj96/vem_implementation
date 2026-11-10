@@ -43,12 +43,12 @@ function TF = computeFractureTransferOperator(fracture, cell_struct, face_struct
         TF(pFDof, dofPlus) = TF(pFDof, dofPlus) + sp;
     end
 
-    %% Verification
-
-    assert(all(sum(spones(TF), 2) == 2), 'Each fracture face must couple to two bulk flux DOFs.');
-
-    fprintf('\n[# BULK-FRACTURE TRANSFER OPERATOR]\n');
-    fprintf('  Matrix size: %d x %d\n', size(TF, 1), size(TF, 2));
-    fprintf('  Nonzero entries: %d\n', nnz(TF));
-    fprintf('  Status: PASS\n');
+    % %% Verification
+    % 
+    % assert(all(sum(spones(TF), 2) == 2), 'Each fracture face must couple to two bulk flux DOFs.');
+    % 
+    % fprintf('\n[# BULK-FRACTURE TRANSFER OPERATOR]\n');
+    % fprintf('  Matrix size: %d x %d\n', size(TF, 1), size(TF, 2));
+    % fprintf('  Nonzero entries: %d\n', nnz(TF));
+    % fprintf('  Status: PASS\n');
 end

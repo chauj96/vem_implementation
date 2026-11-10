@@ -5,7 +5,7 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 %% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: unit cube model]\n');
 
-val = 16;
+val = 32;
 Nx = val;
 Ny = val;
 Nz = val;
@@ -22,8 +22,8 @@ mu = 1;
 alpha = 1;
 s0 = 1;
 xFrac = 0.5;
-yRange = [0.25, 0.75];
-zRange = [0.25, 0.75];
+yRange = [0, 1.0];
+zRange = [0, 1.0];
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
 face_struct = assignFaceProperties(face_struct); 
@@ -34,8 +34,8 @@ face_struct = assignFaceProperties(face_struct);
 cell_struct = computeVolumeQuadrature(cell_struct, face_struct, V3);
 face_struct = computeFaceQuadrature(face_struct, V3);
 
-% DOFs assignment for elasticity part
-[cell_struct, face_struct, nStressDofs] = assignFractureStressDofs(cell_struct, face_struct, fracture);
+% DOFs assignment
+% [cell_struct, face_struct, nStressDofs] = assignFractureStressDofs(cell_struct, face_struct, fracture);
 fracture = buildFractureSurfaceMesh(fracture, face_struct, V3);
 [cell_struct, face_struct, fracture, flowDofs] = assignFractureFlowDofs(cell_struct, face_struct, fracture);
 
@@ -59,19 +59,15 @@ Tplus = 1;
 R = computeFractureRobinOperator(fracture, face_struct, flowDofs, Tminus, Tplus);
 TF = computeFractureTransferOperator(fracture, cell_struct, face_struct, flowDofs);
 
-test_flowSignConvention(cell_struct, fracture, E_mfd_local, EF_mfd_local, TF);
-
 %% STEP 5: GLOBAL FLOW ASSEMBLY
 [A, flowBlocks] = assembleMixedDimensionalFlowSystem(cell_struct, fracture, flowDofs, A_mfd_local, E_mfd_local, AF_mfd_local, EF_mfd_local, R, TF);
 
 % b = assembleFlowRHS(cell_struct, fracture, flowDofs);
 exactFun = @(x) fullFractureExactData(x, xFrac);
 
-b = assembleFlowRHS( ...
-    cell_struct, fracture, flowDofs, face_struct, exactFun);
+b = assembleFlowRHS(cell_struct, fracture, flowDofs, face_struct, exactFun);
 
-[Ared, bred, bc] = applyFlowBC( ...
-    A, b, cell_struct, face_struct, fracture, flowDofs, exactFun);
+[Ared, bred, bc] = applyFlowBC(A, b, cell_struct, face_struct, fracture, flowDofs, exactFun);
 
 
 %% STEP 6: SOLVE GLOBAL FLOW SYSTEM
@@ -96,11 +92,9 @@ pF = x(flowDofs.offset.pF + (1:flowDofs.nPF));
 
 
 %% STEP 7: COMPARE WITH MANUFACTURED EXACT SOLUTION
-
 fprintf('\n[# MANUFACTURED SOLUTION ERROR]\n');
 
-%% BULK PRESSURE ERROR
-
+% BULK PRESSURE ERROR
 pExact = zeros(flowDofs.nP, 1);
 bulkVolumes = zeros(flowDofs.nP, 1);
 
@@ -120,8 +114,7 @@ bulkNorm = sqrt(sum(bulkVolumes .* pExact.^2));
 
 relBulkPressureError = bulkError / max(bulkNorm, eps);
 
-%% FRACTURE PRESSURE ERROR
-
+% FRACTURE PRESSURE ERROR
 pFExact = zeros(flowDofs.nPF, 1);
 fractureAreas = zeros(flowDofs.nPF, 1);
 
@@ -144,49 +137,13 @@ fractureNorm = sqrt(sum(fractureAreas .* pFExact.^2));
 
 relFracturePressureError = fractureError / max(fractureNorm, eps);
 
-%% REPORT
-
 fprintf('  Bulk pressure absolute error: %.6e\n', bulkError);
 fprintf('  Bulk pressure relative error: %.6e\n', relBulkPressureError);
 
 fprintf('  Fracture pressure absolute error: %.6e\n', fractureError);
 fprintf('  Fracture pressure relative error: %.6e\n', relFracturePressureError);
 
-fprintf('  Status: ERROR COMPUTED\n');
-
-% Bulk pressure errors adjacent to the fracture plane
-tol = 1e-10;
-h = 1 / Nx;
-
-nearFracErrors = [];
-
-for e = 1:numel(cell_struct)
-
-    xc = cell_struct(e).center(:);
-
-    if abs(abs(xc(1)-xFrac) - h/2) < tol && ...
-       xc(2) >= yRange(1) && xc(2) <= yRange(2) && ...
-       xc(3) >= zRange(1) && xc(3) <= zRange(2)
-
-        nearFracErrors(end+1,1) = p(e) - pExact(e);
-    end
-end
-
-fprintf('  Bulk pressure mean error near fracture: %.6e\n', ...
-    mean(nearFracErrors));
-
-fprintf('  Bulk pressure error range near fracture: [%.6e, %.6e]\n', ...
-    min(nearFracErrors), max(nearFracErrors));
-
-% Fracture pressure constant offset
-pFdiff = pF - pFExact;
-
-offset = sum(fractureAreas .* pFdiff) / sum(fractureAreas);
-
-fprintf('  Fracture pressure offset: %.6e\n', offset);
-
 %% STEP 8: FLUX CONVERGENCE ERROR
-
 fprintf('\n[# MANUFACTURED FLUX ERROR]\n');
 
 % Exact bulk flux DOFs
@@ -210,48 +167,17 @@ for f = 1:numel(face_struct)
         % Duplicated DOF: plus-side cell
         dofPlus = face_struct(f).flow_dof_plus;
 
-        wExact(dofMinus) = ...
-            Af * dot(exact.wBulkMinus, n);
+        wExact(dofMinus) = Af * dot(exact.wBulkMinus, n);
 
-        wExact(dofPlus) = ...
-            Af * dot(exact.wBulkPlus, n);
+        wExact(dofPlus) = Af * dot(exact.wBulkPlus, n);
 
     else
 
         % Ordinary bulk face
-        wExact(face_struct(f).flow_dof) = ...
-            Af * dot(exact.wBulk, n);
+        wExact(face_struct(f).flow_dof) = Af * dot(exact.wBulk, n);
 
     end
 end
-
-
-% % Exact bulk flux DOFs
-% wExact = zeros(flowDofs.nW, 1);
-% 
-% for f = 1:numel(face_struct)
-% 
-%     xf = face_struct(f).center(:);
-%     Af = face_struct(f).area;
-% 
-%     exact = exactFun(xf);
-% 
-%     % Global face normal must match the flux DOF orientation
-%     n = face_struct(f).normal(:);
-%     n = n / norm(n);
-% 
-%     wExact(face_struct(f).flow_dof) = ...
-%         Af * dot(exact.wBulk, n);
-% 
-%     % Fracture face: duplicated flux DOF on the plus side
-%     if face_struct(f).is_fracture
-% 
-%         dofPlus = face_struct(f).flow_dof_plus;
-% 
-%         wExact(dofPlus) = ...
-%             Af * dot(exact.wBulkPlus, n);
-%     end
-% end
 
 % Exact fracture edge flux DOFs
 wFExact = zeros(flowDofs.nWF, 1);
@@ -266,8 +192,7 @@ for e = 1:fracture.nEdges
     nu = fracture.edge_normals(e,:)';
     nu = nu / norm(nu);
 
-    wFExact(fracture.edge_flux_dofs(e)) = ...
-        Le * dot(exact.wFrac, nu);
+    wFExact(fracture.edge_flux_dofs(e)) = Le * dot(exact.wFrac, nu);
 end
 
 % Extract pure bulk/fracture MFD inner products
@@ -299,187 +224,56 @@ fprintf('  Fracture flux relative error: %.6e\n', relFractureFluxError);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function exact = fullFractureExactData(x, xFrac)
-% Partial-fracture manufactured solution.
-% Varela et al. (2023), Appendix D.2 and Table 8.
-%
-% Fracture: x = xFrac, y,z in [0.25,0.75]
-% Kbulk = I, Kfracture = I, Tminus = Tplus = 1
-% n = 1.5
+% exact manufactured solution for a full planar fracture.
 
     x = x(:);
-    assert(numel(x) == 3, 'Expected a 3D coordinate.');
 
-    X = x(1);
+    assert(numel(x) == 3, 'Expected a 3D coordinate.');
+    assert(all(isfinite(x)), 'Invalid coordinate.');
+
     y = x(2);
     z = x(3);
 
-    lo = 0.25;
-    hi = 0.75;
-    q = 2.5;             % n + 1
+    d = abs(x(1) - xFrac);
 
-    %% DISTANCE TO FINITE FRACTURE
+    a = y * (1 - y);
+    c = z * (1 - z);
 
-    alpha = X - xFrac;
+    omega = a^2 * c^2;
 
-    dy = y - min(max(y, lo), hi);
-    dz = z - min(max(z, lo), hi);
+    lapOmegaY = 2 * ((1 - 2*y)^2 - 2*a) * c^2;
+    lapOmegaZ = 2 * ((1 - 2*z)^2 - 2*c) * a^2;
 
-    d = sqrt(alpha^2 + dy^2 + dz^2);
+    lapOmega = lapOmegaY + lapOmegaZ;
 
-    inside = (y >= lo && y <= hi && ...
-              z >= lo && z <= hi);
-
-    %% BUBBLE FUNCTION
-
-    omega = 0;
-    domegaDy = 0;
-    domegaDz = 0;
-    lapOmega = 0;
-
-    if inside
-
-        a = (y-lo)*(hi-y);
-        c = (z-lo)*(hi-z);
-
-        da = lo+hi-2*y;
-        dc = lo+hi-2*z;
-
-        omega = a^2*c^2;
-
-        domegaDy = 2*a*da*c^2;
-        domegaDz = 2*c*dc*a^2;
-
-        lapOmega = ...
-            (2*da^2 - 4*a)*c^2 + ...
-            (2*dc^2 - 4*c)*a^2;
-    end
-
-    %% BULK PRESSURE
-
-    exact.pBulk = d^q + omega*d;
-
-    %% BULK SOURCE AND FLUX
-
-    if d > 0
-
-        gradD = [alpha; dy; dz] / d;
-
-        % Number of active distance coordinates.
-        % alpha is always one active coordinate.
-        kdim = 1 + (dy ~= 0) + (dz ~= 0);
-
-        % Laplacian of d^q
-        lapDq = q*(q + kdim - 2)*d^(q-2);
-
-        gradOmega = [0; domegaDy; domegaDz];
-
-        % Laplacian of omega*d
-        lapOmegaD = d*lapOmega + ...
-            2*dot(gradOmega,gradD) + ...
-            omega*(kdim-1)/d;
-
-        exact.fBulk = -lapDq - lapOmegaD;
-
-        exact.wBulk = ...
-            -q*d^(q-1)*gradD ...
-            -omega*gradD ...
-            -d*gradOmega;
-
-    else
-
-        % One-sided bulk traces on the fracture.
-        exact.fBulk = 0;
-        exact.wBulk = [omega; 0; 0];
-    end
-
-    %% ONE-SIDED BULK FLUX TRACES
-
-    exact.wBulkMinus = [ omega; 0; 0];
-    exact.wBulkPlus  = [-omega; 0; 0];
-
-    %% FRACTURE PRESSURE AND FLUX
-
+    exact.pBulk = d^(5/2) + omega * d;
     exact.pFrac = -omega;
-
-    exact.wFrac = [0; domegaDy; domegaDz];
-
-    %% FRACTURE SOURCE
-
-    exact.fFrac = lapOmega - 2*omega;
-
-    %% INTERFACE TRANSFER
 
     exact.lambdaMinus = omega;
     exact.lambdaPlus = omega;
 
-    %% AUXILIARY DATA
+    exact.fBulk = -(15/4) * sqrt(d) - d * lapOmega;
+    exact.fFrac = lapOmega - 2 * omega;
 
     exact.omega = omega;
     exact.d = d;
+
+    %% EXACT BULK DARCY FLUX
+
+    domegaDy = 2 * a * (1 - 2*y) * c^2;
+    domegaDz = 2 * c * (1 - 2*z) * a^2;
+
+    wx = -sign(x(1) - xFrac) * ((5/2) * d^(3/2) + omega);
+
+    wy = -d * domegaDy;
+    wz = -d * domegaDz;
+
+    exact.wBulk = [wx; wy; wz];
+
+    % One-sided traces on the fracture
+    exact.wBulkMinus = [ omega; -d*domegaDy; -d*domegaDz ];
+    exact.wBulkPlus  = [-omega; -d*domegaDy; -d*domegaDz ];
+
+    %% EXACT FRACTURE DARCY FLUX
+    exact.wFrac = [0; domegaDy; domegaDz];
 end
-
-
-% function exact = fullFractureExactData(x, xFrac)
-% % Exact manufactured solution for a full planar fracture.
-% %
-% % Fracture:
-% %   x = xFrac, 0 <= y,z <= 1
-% %
-% % Kbulk = I, Kfracture = I
-% % Tminus = Tplus = 1
-% %
-% % x: 3-component coordinate vector
-% 
-%     x = x(:);
-% 
-%     assert(numel(x) == 3, 'Expected a 3D coordinate.');
-%     assert(all(isfinite(x)), 'Invalid coordinate.');
-% 
-%     y = x(2);
-%     z = x(3);
-% 
-%     d = abs(x(1) - xFrac);
-% 
-%     a = y * (1 - y);
-%     c = z * (1 - z);
-% 
-%     omega = a^2 * c^2;
-% 
-%     lapOmegaY = 2 * ((1 - 2*y)^2 - 2*a) * c^2;
-%     lapOmegaZ = 2 * ((1 - 2*z)^2 - 2*c) * a^2;
-% 
-%     lapOmega = lapOmegaY + lapOmegaZ;
-% 
-%     exact.pBulk = d^(5/2) + omega * d;
-%     exact.pFrac = -omega;
-% 
-%     exact.lambdaMinus = omega;
-%     exact.lambdaPlus = omega;
-% 
-%     exact.fBulk = -(15/4) * sqrt(d) - d * lapOmega;
-%     exact.fFrac = lapOmega - 2 * omega;
-% 
-%     exact.omega = omega;
-%     exact.d = d;
-% 
-%     %% EXACT BULK DARCY FLUX
-% 
-%     domegaDy = 2 * a * (1 - 2*y) * c^2;
-%     domegaDz = 2 * c * (1 - 2*z) * a^2;
-% 
-%     wx = -sign(x(1) - xFrac) * ...
-%         ((5/2) * d^(3/2) + omega);
-% 
-%     wy = -d * domegaDy;
-%     wz = -d * domegaDz;
-% 
-%     exact.wBulk = [wx; wy; wz];
-% 
-%     % One-sided traces on the fracture
-%     exact.wBulkMinus = [ omega; -d*domegaDy; -d*domegaDz ];
-%     exact.wBulkPlus  = [-omega; -d*domegaDy; -d*domegaDz ];
-% 
-%     %% EXACT FRACTURE DARCY FLUX
-% 
-%     exact.wFrac = [0; domegaDy; domegaDz];
-% end

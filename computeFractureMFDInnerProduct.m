@@ -88,18 +88,18 @@ function AF_mfd_local = computeFractureMFDInnerProduct(fracture)
             'NaN/Inf detected in fracture MFD matrix for face %d.', k);
     end
 
-    %% Debug summary
-
-    fprintf('\n[# LOCAL FRACTURE MFD INNER PRODUCT]\n');
-    fprintf('  Number of fracture faces: %d\n', nFaces);
-    fprintf('  Max geometry error: %.3e\n', max(geom_err));
-    fprintf('  Max symmetry error: %.3e\n', max(sym_err));
-    fprintf('  Minimum eigenvalue: %.3e\n', min(min_eig));
-
-    if max(geom_err) < 1e-10 && max(sym_err) < 1e-12 && min(min_eig) > 0
-
-        fprintf('  Status: PASS\n');
-    else
-        fprintf('  Status: CHECK REQUIRED\n');
-    end
+    % %% Debug summary
+    % 
+    % fprintf('\n[# LOCAL FRACTURE MFD INNER PRODUCT]\n');
+    % fprintf('  Number of fracture faces: %d\n', nFaces);
+    % fprintf('  Max geometry error: %.3e\n', max(geom_err));
+    % fprintf('  Max symmetry error: %.3e\n', max(sym_err));
+    % fprintf('  Minimum eigenvalue: %.3e\n', min(min_eig));
+    % 
+    % if max(geom_err) < 1e-10 && max(sym_err) < 1e-12 && min(min_eig) > 0
+    % 
+    %     fprintf('  Status: PASS\n');
+    % else
+    %     fprintf('  Status: CHECK REQUIRED\n');
+    % end
 end

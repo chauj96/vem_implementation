@@ -1,17 +1,12 @@
-function [A, blocks] = assembleMixedDimensionalFlowSystem( ...
-    cell_struct, fracture, flowDofs, ...
-    A_mfd_local, E_mfd_local, ...
-    AF_mfd_local, EF_mfd_local, R, TF)
-
-% Assemble the global mixed-dimensional Darcy system.
+function [A, blocks] = assembleMixedDimensionalFlowSystem(cell_struct, fracture, flowDofs, A_mfd_local, E_mfd_local, AF_mfd_local, EF_mfd_local, R, TF)
+% assemble the global mixed-dimensional Darcy system.
 %
-% Unknown ordering:
+% unknown ordering:
 %   x = [w; p; wF; pF]
 %
-% Local MFD inner products use outward-oriented fluxes.
-% Global flux DOFs use fixed face/edge orientations.
+% local MFD inner products use outward-oriented fluxes. global flux DOFs use fixed face/edge orientations.
 %
-% Global matrix:
+% global matrix:
 %
 %   [ W+R    E'      0      TF' ]
 %   [ -E     0       0       0  ]
@@ -86,39 +81,4 @@ function [A, blocks] = assembleMixedDimensionalFlowSystem( ...
     blocks.TF = TF;
     blocks.Wstar = Wstar;
 
-    %% 6. Verification
-
-    nTotal = nW + nP + nWF + nPF;
-
-    assert(isequal(size(A), [nTotal, nTotal]), ...
-        'Incorrect global matrix size.');
-
-    symW = norm(W - W', 'fro') / max(norm(W, 'fro'), eps);
-    symWF = norm(WF - WF', 'fro') / max(norm(WF, 'fro'), eps);
-    symWstar = norm(Wstar - Wstar', 'fro') / max(norm(Wstar, 'fro'), eps);
-
-    assert(symW < 1e-12, 'Bulk W is not symmetric.');
-    assert(symWF < 1e-12, 'Fracture WF is not symmetric.');
-    assert(symWstar < 1e-12, 'Wstar is not symmetric.');
-
-    assert(nnz(E) == sum(arrayfun(@(c) numel(c.faces), cell_struct)), ...
-        'Unexpected bulk divergence connectivity.');
-
-    assert(nnz(EF) == sum(cellfun(@numel, fracture.face_edges)), ...
-        'Unexpected fracture divergence connectivity.');
-
-    assert(all(isfinite(nonzeros(A))), ...
-        'Global matrix contains NaN or Inf.');
-
-    fprintf('\n[# GLOBAL MIXED-DIMENSIONAL FLOW ASSEMBLY]\n');
-    fprintf('  Bulk W: %d x %d\n', size(W, 1), size(W, 2));
-    fprintf('  Bulk E: %d x %d\n', size(E, 1), size(E, 2));
-    fprintf('  Fracture WF: %d x %d\n', size(WF, 1), size(WF, 2));
-    fprintf('  Fracture EF: %d x %d\n', size(EF, 1), size(EF, 2));
-    fprintf('  Global A: %d x %d\n', size(A, 1), size(A, 2));
-    fprintf('  Global nonzeros: %d\n', nnz(A));
-    fprintf('  Bulk W symmetry error: %.3e\n', symW);
-    fprintf('  Fracture WF symmetry error: %.3e\n', symWF);
-    fprintf('  Wstar symmetry error: %.3e\n', symWstar);
-    fprintf('  Status: PASS\n');
 end

@@ -1,5 +1,5 @@
 function A_mfd_local = computeMFDInnerProduct(cell_struct, face_struct)
-% construct local MFD flux inner product matrices.
+% construct local MFD flux inner product matrices (now just have TPFA)
 %
 % A_E approximates (K^{-1} w, z)_E.
 % flux DOFs are integrated normal fluxes with cell-outward orientation.
@@ -74,18 +74,18 @@ function A_mfd_local = computeMFDInnerProduct(cell_struct, face_struct)
         assert(all(isfinite(A_E(:))), 'NaN/Inf detected in MFD matrix for cell %d.', e);
     end
 
-    %% Debug summary
-
-    fprintf('\n[# LOCAL BULK MFD INNER PRODUCT]\n');
-    fprintf('  Number of cells: %d\n', nCells);
-    fprintf('  Max geometry error: %.3e\n', max(geom_err));
-    fprintf('  Max symmetry error: %.3e\n', max(sym_err));
-    fprintf('  Minimum eigenvalue: %.3e\n', min(min_eig));
-
-    if max(geom_err) < 1e-10 && max(sym_err) < 1e-12 && min(min_eig) > 0
-
-        fprintf('  Status: PASS\n');
-    else
-        fprintf('  Status: CHECK REQUIRED\n');
-    end
+    % %% Debug summary
+    % 
+    % fprintf('\n[# LOCAL BULK MFD INNER PRODUCT]\n');
+    % fprintf('  Number of cells: %d\n', nCells);
+    % fprintf('  Max geometry error: %.3e\n', max(geom_err));
+    % fprintf('  Max symmetry error: %.3e\n', max(sym_err));
+    % fprintf('  Minimum eigenvalue: %.3e\n', min(min_eig));
+    % 
+    % if max(geom_err) < 1e-10 && max(sym_err) < 1e-12 && min(min_eig) > 0
+    % 
+    %     fprintf('  Status: PASS\n');
+    % else
+    %     fprintf('  Status: CHECK REQUIRED\n');
+    % end
 end

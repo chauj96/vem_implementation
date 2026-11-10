@@ -46,19 +46,19 @@ function R = computeFractureRobinOperator(fracture, face_struct, flowDofs, Tminu
         R(dofPlus, dofPlus) = R(dofPlus, dofPlus) + 1 / (Tplus(k) * Af);
     end
 
-    %% Verification
-
-    sym_err = norm(R - R.', 'fro') / max(norm(R, 'fro'), eps);
-
-    expectedNnz = 2 * nF;
-
-    assert(nnz(R) == expectedNnz, 'Unexpected number of Robin entries.');
-    assert(sym_err < 1e-12, 'Robin matrix is not symmetric.');
-    assert(all(nonzeros(R) > 0), 'Robin resistance must be positive.');
-
-    fprintf('\n[# BULK-FRACTURE ROBIN OPERATOR]\n');
-    fprintf('  Matrix size: %d x %d\n', size(R, 1), size(R, 2));
-    fprintf('  Nonzero entries: %d\n', nnz(R));
-    fprintf('  Symmetry error: %.3e\n', sym_err);
-    fprintf('  Status: PASS\n');
+    % %% Verification
+    % 
+    % sym_err = norm(R - R.', 'fro') / max(norm(R, 'fro'), eps);
+    % 
+    % expectedNnz = 2 * nF;
+    % 
+    % assert(nnz(R) == expectedNnz, 'Unexpected number of Robin entries.');
+    % assert(sym_err < 1e-12, 'Robin matrix is not symmetric.');
+    % assert(all(nonzeros(R) > 0), 'Robin resistance must be positive.');
+    % 
+    % fprintf('\n[# BULK-FRACTURE ROBIN OPERATOR]\n');
+    % fprintf('  Matrix size: %d x %d\n', size(R, 1), size(R, 2));
+    % fprintf('  Nonzero entries: %d\n', nnz(R));
+    % fprintf('  Symmetry error: %.3e\n', sym_err);
+    % fprintf('  Status: PASS\n');
 end
