@@ -44,20 +44,39 @@ function b = assembleFlowRHS(cell_struct, fracture, flowDofs, face_struct, exact
     end
 
 
+
     %% FRACTURE SOURCE
-
+    
+    g = [-1, 1] / sqrt(3);
+    
     for k = 1:fracture.nFaces
-
-        f = fracture.faces(k);
+    
         dof = fracture.pressure_dofs(k);
-
-        xf = face_struct(f).center(:);
+    
+        xf = fracture.face_centers(k,:)';
         Af = fracture.face_areas(k);
-
-        exact = exactFun(xf);
-
-        bPF(dof) = bPF(dof) + Af * exact.fFrac;
+    
+        % Cartesian square fracture face
+        h = sqrt(Af);
+    
+        integralF = 0;
+    
+        for i = 1:2
+            for j = 1:2
+    
+                xq = xf + (h/2)*[0; g(i); g(j)];
+    
+                exact = exactFun(xq);
+    
+                integralF = integralF + exact.fFrac;
+    
+            end
+        end
+    
+        bPF(dof) = (Af/4) * integralF;
+    
     end
+
 
     %% GLOBAL RHS
 

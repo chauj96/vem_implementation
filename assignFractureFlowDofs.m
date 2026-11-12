@@ -108,6 +108,14 @@ function [cell_struct, face_struct, fracture, flowDofs] = assignFractureFlowDofs
 
     fracture.internal_flux_dofs = fracture.edge_flux_dofs(fracture.internal_edges);
 
+    % homogeneous Neumann condition on fracture perimeter
+    fracture.boundary_flux_values = zeros(numel(fracture.boundary_flux_dofs),1);
+    
+    % global indices in the complete mixed-dimensional system
+    flowDofs.fractureBoundaryFluxDofs = flowDofs.offset.wF + fracture.boundary_flux_dofs;
+    
+    flowDofs.fractureBoundaryFluxValues = fracture.boundary_flux_values;
+
     fprintf('\n[# FLOW DOF NUMBERING]\n');
     fprintf('  Bulk flux w:       %d\n', flowDofs.nW);
     fprintf('  Bulk pressure p:   %d\n', flowDofs.nP);

@@ -12,7 +12,6 @@ Nz = val;
 
 G = cartGrid([Nx Ny Nz],[1 1 1]);
 G = computeGeometry(G);
-
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
 %% STEP 2: SET UP GEOMETRY
@@ -22,8 +21,8 @@ mu = 1;
 alpha = 1;
 s0 = 1;
 xFrac = 0.5;
-yRange = [0, 1.0];
-zRange = [0, 1.0];
+yRange = [0, 1];
+zRange = [0, 1];
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
 face_struct = assignFaceProperties(face_struct); 
@@ -103,16 +102,13 @@ for e = 1:numel(cell_struct)
     xc = cell_struct(e).center(:);
 
     exact = fullFractureExactData(xc, xFrac);
+    % exact = exactFun(xc);
 
     pExact(e) = exact.pBulk;
     bulkVolumes(e) = cell_struct(e).volume;
 end
 
-% Volume-weighted relative discrete L2 error
 bulkError = sqrt(sum(bulkVolumes .* (p - pExact).^2));
-bulkNorm = sqrt(sum(bulkVolumes .* pExact.^2));
-
-relBulkPressureError = bulkError / max(bulkNorm, eps);
 
 % FRACTURE PRESSURE ERROR
 pFExact = zeros(flowDofs.nPF, 1);
@@ -126,27 +122,23 @@ for k = 1:fracture.nFaces
     xf = face_struct(f).center(:);
 
     exact = fullFractureExactData(xf, xFrac);
+    % exact = exactFun(xf);
 
     pFExact(dof) = exact.pFrac;
     fractureAreas(dof) = fracture.face_areas(k);
 end
 
-% Area-weighted relative discrete L2 error
 fractureError = sqrt(sum(fractureAreas .* (pF - pFExact).^2));
-fractureNorm = sqrt(sum(fractureAreas .* pFExact.^2));
 
-relFracturePressureError = fractureError / max(fractureNorm, eps);
+fprintf('\n[# PRESSURE L2 ERRORS]\n');
 
-fprintf('  Bulk pressure absolute error: %.6e\n', bulkError);
-fprintf('  Bulk pressure relative error: %.6e\n', relBulkPressureError);
-
-fprintf('  Fracture pressure absolute error: %.6e\n', fractureError);
-fprintf('  Fracture pressure relative error: %.6e\n', relFracturePressureError);
+fprintf('  Bulk pressure L2 error: %.6e\n', bulkError);
+fprintf('  Fracture pressure L2 error: %.6e\n', fractureError);
 
 %% STEP 8: FLUX CONVERGENCE ERROR
 fprintf('\n[# MANUFACTURED FLUX ERROR]\n');
 
-% Exact bulk flux DOFs
+% exact bulk flux DOFs
 wExact = zeros(flowDofs.nW, 1);
 
 for f = 1:numel(face_struct)
@@ -161,10 +153,10 @@ for f = 1:numel(face_struct)
 
     if face_struct(f).is_fracture
 
-        % Original DOF: minus-side cell
+        % minus-side cell
         dofMinus = face_struct(f).flow_dof;
 
-        % Duplicated DOF: plus-side cell
+        % plus-side cell
         dofPlus = face_struct(f).flow_dof_plus;
 
         wExact(dofMinus) = Af * dot(exact.wBulkMinus, n);
@@ -172,54 +164,60 @@ for f = 1:numel(face_struct)
         wExact(dofPlus) = Af * dot(exact.wBulkPlus, n);
 
     else
-
-        % Ordinary bulk face
         wExact(face_struct(f).flow_dof) = Af * dot(exact.wBulk, n);
 
     end
 end
 
-% Exact fracture edge flux DOFs
 wFExact = zeros(flowDofs.nWF, 1);
+
+gaussPts = [-1/sqrt(3), 1/sqrt(3)];
+gaussWts = [1, 1];
 
 for e = 1:fracture.nEdges
 
     xe = fracture.edge_centers(e,:)';
     Le = fracture.edge_lengths(e);
 
-    exact = exactFun(xe);
-
     nu = fracture.edge_normals(e,:)';
     nu = nu / norm(nu);
 
-    wFExact(fracture.edge_flux_dofs(e)) = Le * dot(exact.wFrac, nu);
+    % tangent direction along the edge
+    t = cross([1;0;0], nu);
+    t = t / norm(t);
+
+    fluxIntegral = 0;
+
+    for q = 1:2
+
+        xq = xe + (Le/2) * gaussPts(q) * t;
+
+        exact = exactFun(xq);
+
+        fluxIntegral = fluxIntegral + gaussWts(q) * dot(exact.wFrac, nu);
+
+    end
+
+    wFExact(fracture.edge_flux_dofs(e)) = (Le/2) * fluxIntegral;
 end
 
-% Extract pure bulk/fracture MFD inner products
-W = flowBlocks.W;
+fprintf('\n[# MIXED-DIMENSIONAL FLUX ENERGY ERRORS]\n');
+
+W  = flowBlocks.W;
 WF = flowBlocks.WF;
 
-% MFD norm errors
-dw = w - wExact;
+dw  = w  - wExact;
 dwF = wF - wFExact;
 
-bulkFluxError = sqrt(max(dw' * W * dw, 0));
-fractureFluxError = sqrt(max(dwF' * WF * dwF, 0));
+% (1) Bulk flux energy error
+bulkFluxError = sqrt(dw' * W * dw);
 
-bulkFluxNorm = sqrt(max(wExact' * W * wExact, 0));
-fractureFluxNorm = sqrt(max(wFExact' * WF * wFExact, 0));
+% (2) Fracture flux energy error
+fractureFluxError = sqrt(dwF' * WF * dwF);
 
-relBulkFluxError = bulkFluxError / max(bulkFluxNorm, eps);
-relFractureFluxError = fractureFluxError / max(fractureFluxNorm, eps);
+fprintf('  Bulk flux energy error:      %.6e\n', bulkFluxError);
 
-fprintf('  Bulk flux absolute error: %.6e\n', bulkFluxError);
-fprintf('  Bulk flux relative error: %.6e\n', relBulkFluxError);
-
-fprintf('  Fracture flux absolute error: %.6e\n', fractureFluxError);
-fprintf('  Fracture flux relative error: %.6e\n', relFractureFluxError);
-
-
-
+fprintf('  Fracture flux energy error:  %.6e\n', fractureFluxError);
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -258,8 +256,6 @@ function exact = fullFractureExactData(x, xFrac)
     exact.omega = omega;
     exact.d = d;
 
-    %% EXACT BULK DARCY FLUX
-
     domegaDy = 2 * a * (1 - 2*y) * c^2;
     domegaDz = 2 * c * (1 - 2*z) * a^2;
 
@@ -270,10 +266,8 @@ function exact = fullFractureExactData(x, xFrac)
 
     exact.wBulk = [wx; wy; wz];
 
-    % One-sided traces on the fracture
     exact.wBulkMinus = [ omega; -d*domegaDy; -d*domegaDz ];
     exact.wBulkPlus  = [-omega; -d*domegaDy; -d*domegaDz ];
 
-    %% EXACT FRACTURE DARCY FLUX
     exact.wFrac = [0; domegaDy; domegaDz];
 end

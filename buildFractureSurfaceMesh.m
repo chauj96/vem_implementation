@@ -99,6 +99,15 @@ function fracture = buildFractureSurfaceMesh(fracture, face_struct, V3)
     fracture.boundary_edges = find(nAdjacent == 1);
     fracture.internal_edges = find(nAdjacent == 2);
 
+    % Fracture perimeter boundary conditions
+    fracture.is_boundary_edge = false(nE,1);
+    fracture.is_boundary_edge(fracture.boundary_edges) = true;
+    
+    fracture.is_flux_bc_edge = false(nE,1);
+    fracture.is_flux_bc_edge(fracture.boundary_edges) = true;
+    
+    fracture.is_pressure_bc_edge = false(nE,1);
+
     %% 5. Global co-normal and local orientation signs
 
     % global fracture plane normal
