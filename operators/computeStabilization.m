@@ -85,7 +85,7 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
             end
     
         end
-    
+       
         K_stab{e} = kE * hE * K_E;
     
     end

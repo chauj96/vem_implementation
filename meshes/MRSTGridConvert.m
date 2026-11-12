@@ -150,26 +150,4 @@ function checkVolumeConsistency(cell_struct, face_struct, nCells)
         end
     end
 
-    % fprintf('  Cells checked           : %d\n', nCells);
-    % fprintf('  Max relative tensor err : %.3e\n', max_rel_err);
-    % 
-    % if inexact == 0
-    %     fprintf('  All cells PASS (tol 1e-10).\n');
-    % else
-    %     fprintf('  FAILED cells (rel_err > 1e-10): %d / %d\n', inexact, nCells);
-    % 
-    %     vol_err = fail_list(:,5);
-    %     fprintf('\n  Volume discrepancy (|V_div - V_stored|/V_stored) in failed cells:\n');
-    %     fprintf('    min/mean/max: %.3e / %.3e / %.3e\n', ...
-    %             min(vol_err), mean(vol_err), max(vol_err));
-    % 
-    %     [~, ord] = sort(fail_list(:,2), 'descend');
-    %     fprintf('\n  Worst 5 cells (ci, rel_T_err, V_stored, V_div):\n');
-    %     for k = 1:min(5, size(fail_list,1))
-    %         r = fail_list(ord(k),:);
-    %         fprintf('    cell %4d  rel_err=%.3e  V_stored=%.4e  V_div=%.4e\n', ...
-    %                 r(1), r(2), r(3), r(4));
-    %     end
-    % end
-    % fprintf('-----------------------------------------------------\n\n');
 end
