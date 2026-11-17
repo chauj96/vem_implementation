@@ -5,14 +5,24 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 %% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: unit cube model]\n');
 
-val = 32;
+val = 16;
 Nx = val;
 Ny = val;
 Nz = val;
+meshType = 'tetra';
 
-G = cartGrid([Nx Ny Nz],[1 1 1]);
+G = cartGrid([Nx Ny Nz],[1 1 1], 'meshType', meshType);
 G = computeGeometry(G);
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+
+figure('Color','w');
+plotGrid(G, 'FaceColor','none', 'EdgeColor',[0.5,0.5,0.5]);
+axis equal tight;
+view(35,25);
+xlabel('x');
+ylabel('y');
+zlabel('z');
+title(sprintf('%s mesh: %d cells', meshType, G.cells.num));
 
 %% STEP 2: SET UP GEOMETRY
 % Lamé parameters (currently assuming homogeneous isotropic elasticity)
@@ -93,26 +103,55 @@ pF = x(flowDofs.offset.pF + (1:flowDofs.nPF));
 %% STEP 7: COMPARE WITH MANUFACTURED EXACT SOLUTION
 fprintf('\n[# MANUFACTURED SOLUTION ERROR]\n');
 
-% BULK PRESSURE ERROR
-pExact = zeros(flowDofs.nP, 1);
-bulkVolumes = zeros(flowDofs.nP, 1);
+% bulk pressure errors
+bulkErrorCentroid = 0;
+bulkErrorProjected = 0;
+bulkErrorL2 = 0;
 
 for e = 1:numel(cell_struct)
 
     xc = cell_struct(e).center(:);
+    Ve = cell_struct(e).volume;
 
-    exact = fullFractureExactData(xc, xFrac);
-    % exact = exactFun(xc);
+    qp = cell_struct(e).quad_points;
+    qw = cell_struct(e).quad_weights;
 
-    pExact(e) = exact.pBulk;
-    bulkVolumes(e) = cell_struct(e).volume;
+    pe = p(e);
+
+    % centroid-based error
+    exact = exactFun(xc);
+
+    bulkErrorCentroid = bulkErrorCentroid + Ve*(pe-exact.pBulk)^2;
+
+    % quadrature-based integration
+    pIntegral = 0;
+
+    for q = 1:numel(qw)
+
+        exact = exactFun(qp(:,q));
+
+        pIntegral = pIntegral + qw(q)*exact.pBulk;
+
+        bulkErrorL2 = bulkErrorL2 + qw(q)*(pe-exact.pBulk)^2;
+
+    end
+
+    % cell-average projection
+    pAverage = pIntegral/Ve;
+
+    bulkErrorProjected = bulkErrorProjected + Ve*(pe-pAverage)^2;
+
 end
 
-bulkError = sqrt(sum(bulkVolumes .* (p - pExact).^2));
+bulkErrorCentroid = sqrt(bulkErrorCentroid);
+bulkErrorProjected = sqrt(bulkErrorProjected);
+bulkErrorL2 = sqrt(bulkErrorL2);
 
-% FRACTURE PRESSURE ERROR
-pFExact = zeros(flowDofs.nPF, 1);
-fractureAreas = zeros(flowDofs.nPF, 1);
+
+% fracture pressure errors
+fractureErrorCentroid = 0;
+fractureErrorProjected = 0;
+fractureErrorL2 = 0;
 
 for k = 1:fracture.nFaces
 
@@ -120,20 +159,55 @@ for k = 1:fracture.nFaces
     dof = fracture.pressure_dofs(k);
 
     xf = face_struct(f).center(:);
+    Af = fracture.face_areas(k);
 
-    exact = fullFractureExactData(xf, xFrac);
-    % exact = exactFun(xf);
+    qp = face_struct(f).quad_points;
+    qw = face_struct(f).quad_weights;
 
-    pFExact(dof) = exact.pFrac;
-    fractureAreas(dof) = fracture.face_areas(k);
+    pf = pF(dof);
+
+    % centroid-based error
+    exact = exactFun(xf);
+
+    fractureErrorCentroid = fractureErrorCentroid + Af*(pf-exact.pFrac)^2;
+
+    % quadrature-based integration
+    pIntegral = 0;
+
+    for q = 1:numel(qw)
+
+        exact = exactFun(qp(:,q));
+
+        pIntegral = pIntegral + qw(q)*exact.pFrac;
+
+        fractureErrorL2 = fractureErrorL2 + qw(q)*(pf-exact.pFrac)^2;
+
+    end
+
+    % face-average projection
+    pAverage = pIntegral/Af;
+
+    fractureErrorProjected = fractureErrorProjected + Af*(pf-pAverage)^2;
+
 end
 
-fractureError = sqrt(sum(fractureAreas .* (pF - pFExact).^2));
+fractureErrorCentroid = sqrt(fractureErrorCentroid);
+fractureErrorProjected = sqrt(fractureErrorProjected);
+fractureErrorL2 = sqrt(fractureErrorL2);
 
-fprintf('\n[# PRESSURE L2 ERRORS]\n');
 
-fprintf('  Bulk pressure L2 error: %.6e\n', bulkError);
-fprintf('  Fracture pressure L2 error: %.6e\n', fractureError);
+% print pressure errors
+fprintf('\n[# PRESSURE ERRORS: CENTROID-BASED]\n');
+fprintf('  Bulk pressure error:      %.6e\n', bulkErrorCentroid);
+fprintf('  Fracture pressure error:  %.6e\n', fractureErrorCentroid);
+
+fprintf('\n[# PRESSURE ERRORS: L2 PROJECTION]\n');
+fprintf('  Bulk pressure error:      %.6e\n', bulkErrorProjected);
+fprintf('  Fracture pressure error:  %.6e\n', fractureErrorProjected);
+
+fprintf('\n[# PRESSURE ERRORS: CONTINUOUS L2]\n');
+fprintf('  Bulk pressure error:      %.6e\n', bulkErrorL2);
+fprintf('  Fracture pressure error:  %.6e\n', fractureErrorL2);
 
 %% STEP 8: FLUX CONVERGENCE ERROR
 fprintf('\n[# MANUFACTURED FLUX ERROR]\n');
