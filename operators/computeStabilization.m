@@ -25,7 +25,7 @@ function K_stab = computeStabilization(cell_struct, face_struct, B_local, P_loca
         kE = cell_struct(e).Cinv(4,4);
     
         % hE = cell_struct(e).diameter;
-        HE =10;
+        HE = 10;
 
         hE = sqrt(cell_struct(e).volume / HE);
     

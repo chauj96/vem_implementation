@@ -1,6 +1,6 @@
 % clear; clc; close all
 addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('FACTORIZE'), 'meshes');
-% setupMRSTAuto();
+setupMRSTAuto();
 
 %% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: INCLINED FRACTURE MODEL]\n');
@@ -15,30 +15,12 @@ Nz = 1;
 psi = 20;
 b = 1;
 Nfrac = 25;  % number of fracture faces
+meshType = 'tetra';
 
-[G, fractureInfo] = inclinedFracture(Lx, Ly, Lz, h, Nz, psi, b, Nfrac);
+[G, fractureInfo] = inclinedFracture(Lx, Ly, Lz, h, Nz, psi, b, Nfrac, meshType);
 
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
 
-% figure('Color', 'w');
-% 
-% % plot solid mesh with visible cell edges
-% plotGrid(G, 'FaceColor', [0.65, 0.8, 0.95], 'FaceAlpha', 0.35, 'EdgeColor', [0.25, 0.25, 0.25], 'EdgeAlpha', 0.5);
-% hold on;
-% 
-% % highlight fracture faces
-% plotFaces(G, fractureInfo.faces, 'FaceColor', [1, 0.2, 0.2], 'FaceAlpha', 0.9, 'EdgeColor', 'k');
-% 
-% axis equal tight;
-% view(3);
-% 
-% xlabel('x');
-% ylabel('y');
-% zlabel('z');
-% title('3D Inclined Fracture Mesh');
-% 
-% grid on;
-% box on;
 
 %% STEP 2: SET UP GEOMETRY
 % Lamé parameters (currently assuming homogeneous isotropic elasticity)
@@ -109,7 +91,7 @@ fprintf('\n[# ASSEMBLE GLOBAL MATRICES]\n');
 K_global = assembleContactGlobalSystem(A_global, B_global, Ac, T, J);
 
 RHS = assembleContactRHS(cell_struct, face_struct, face_global_geom, nStressDofs, nDispDofs, nContactTractionDofs, nInterfaceDispDofs);
-[K_bc, RHS_bc, bc] = applyContactBoundaryConstraints(K_global, RHS, cell_struct, face_struct, face_global_geom);
+[K_bc, RHS_bc, bc] = applyContactBoundaryConstraints(K_global, RHS, cell_struct, face_struct, face_global_geom, nStressDofs);
 
 %% STEP 5: SOLVE GLOBAL CONTACT SYSTEM
 fprintf('\n[# SOLVE CONTACT SYSTEM]\n');
