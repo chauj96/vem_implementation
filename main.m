@@ -5,15 +5,26 @@ addpath('geometry', 'operators', 'assembly', 'solvers', 'io', 'tests', genpath('
 %% STEP 1: LOAD MESH
 fprintf('\n[# MESH LOADED: unit cube model]\n');
 
-val = 16;
+Lx = 1;
+Ly = 1;
+Lz = 1;
+
+val = 32;
+
 Nx = val;
 Ny = val;
 Nz = val;
 meshType = 'tetra';
 
-G = cartGrid([Nx Ny Nz],[1 1 1], 'meshType', meshType);
-G = computeGeometry(G);
+xFrac = 0.5;
+yRange = [0, 1];
+zRange = [0, 1];
+
+[G, fractureInfo] = unitCubeFracture(Nx, Ny, Nz, xFrac, yRange, zRange, meshType);
 [cell_struct, face_struct, V3, cells3D] = MRSTGridConvert(G);
+
+% meshName = sprintf('unit_cube_%s_%d', meshType, val);
+% save([meshName, '.mat'], 'cell_struct', 'face_struct', 'V3', 'cells3D', 'fractureInfo', 'Lx', 'Ly', 'Lz', '-v7');
 
 figure('Color','w');
 plotGrid(G, 'FaceColor','none', 'EdgeColor',[0.5,0.5,0.5]);
@@ -30,9 +41,6 @@ lambda = 1;
 mu = 1;
 alpha = 1;
 s0 = 1;
-xFrac = 0.5;
-yRange = [0, 1];
-zRange = [0, 1];
 
 cell_struct = assignCellProperties(cell_struct, V3, cells3D, lambda, mu, alpha, s0);
 face_struct = assignFaceProperties(face_struct); 
